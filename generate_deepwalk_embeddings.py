@@ -1,13 +1,14 @@
-﻿"""Generate DeepWalk/Word2Vec embeddings from a configurable edge list.
+﻿"""Generate DeepWalk/Word2Vec embeddings from an edge list or MATLAB graph.
 
-Input edge IDs must be row indices 0..N-1, or use --node-ids to provide one
-original graph ID per line in the exact feature/label row order. Output tokens
-are always the row indices as strings, as expected by Graph-MultiFix loaders.
+Node IDs in the output are always 0..N-1, matching row order expected by
+Graph-MultiFix loaders. For an edge list, IDs must already be row indices or
+use --node-ids with one graph ID per line in feature/label row order. For a
+MAT file, use --mat-key to select an adjacency matrix; matrix row indices are
+used as node IDs.
 
 Defaults follow the provided DBLP example: 10 walks per node, walk length 10,
 window 5, 64 dimensions, Skip-gram, hierarchical softmax, 5 epochs, and one
-worker. The paper specifies walk length and window but not walks per node.
-Walks are streamed into Gensim rather than retained as a large Python list.
+worker. Walks are streamed into Gensim rather than retained as a large list.
 """
 import argparse
 from contextlib import contextmanager
@@ -16,7 +17,8 @@ import random
 import zipfile
 
 import numpy as np
-from scipy.sparse import csr_matrix
+from scipy import io as scipy_io
+from scipy.sparse import csr_matrix, issparse
 from gensim.models import Word2Vec
 
 
@@ -58,7 +60,27 @@ def detect_delimiter(stream):
     raise ValueError("The edge file is empty")
 
 
-def read_edges(path: Path, delimiter_arg: str, skip_rows: int) -> np.ndarray:
+def read_graph(path: Path, delimiter_arg: str, skip_rows: int, mat_key: str):
+    """Return edge pairs and the matrix node count when reading a MAT file."""
+    if path.suffix.lower() == ".mat":
+        mat = scipy_io.loadmat(str(path))
+        if mat_key not in mat:
+            available = [key for key in mat if not key.startswith("__")]
+            raise KeyError(f"MAT key {mat_key!r} not found. Available keys: {available}")
+        matrix = mat[mat_key]
+        if issparse(matrix):
+            matrix = matrix.tocoo()
+            edges = np.column_stack((matrix.row, matrix.col))
+            num_nodes = matrix.shape[0]
+        else:
+            matrix = np.asarray(matrix)
+            if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+                raise ValueError(f"MAT key {mat_key!r} must be a square adjacency matrix")
+            rows, cols = np.nonzero(matrix)
+            edges = np.column_stack((rows, cols))
+            num_nodes = matrix.shape[0]
+        return edges.astype(np.int64, copy=False), int(num_nodes)
+
     with open_edge_data(path) as stream:
         delimiter = {
             "comma": ",",
@@ -82,7 +104,7 @@ def read_edges(path: Path, delimiter_arg: str, skip_rows: int) -> np.ndarray:
     rounded = np.rint(edges)
     if not np.array_equal(edges, rounded):
         raise ValueError("Edge endpoints must be integer-valued node IDs")
-    return rounded.astype(np.int64, copy=False)
+    return rounded.astype(np.int64, copy=False), None
 
 
 def map_to_row_indices(edges: np.ndarray, node_ids_path: Path | None,
@@ -122,17 +144,19 @@ def map_to_row_indices(edges: np.ndarray, node_ids_path: Path | None,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--edges", required=True, type=Path,
-                        help="Two-column edge list; zip files with one member are supported")
+                        help="Edge list, zip file, or MAT file containing an adjacency matrix")
     parser.add_argument("--output", required=True, type=Path,
-                        help="Output Word2Vec text file, e.g. data/dblp/dblp.emb")
+                        help="Output Word2Vec text file, e.g. data/blogcatalog/blogcatalog.emb")
+    parser.add_argument("--mat-key", default="network",
+                        help="Adjacency matrix key in a MAT file (default: network)")
     parser.add_argument("--num-nodes", type=int,
-                        help="Total node count, including isolated nodes, for 0-based IDs")
+                        help="Total node count, including isolates, for 0-based edge IDs")
     parser.add_argument("--node-ids", type=Path,
                         help="One graph ID per line, in feature/label row order")
     parser.add_argument("--delimiter", choices=("auto", "comma", "whitespace", "tab"),
                         default="auto")
     parser.add_argument("--skip-rows", type=int, default=0,
-                        help="Number of header rows in the edge file")
+                        help="Number of header rows in an edge-list file")
     parser.add_argument("--directed", action="store_true",
                         help="Keep edge direction; by default edges are treated as undirected")
     parser.add_argument("--dimensions", type=int, default=64)
@@ -140,8 +164,7 @@ def main() -> None:
     parser.add_argument("--walks-per-node", type=int, default=10)
     parser.add_argument("--window", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--negative", type=int, default=5,
-                        help="Negative samples per positive pair, as in Gensim's default")
+    parser.add_argument("--negative", type=int, default=5)
     parser.add_argument("--walk-seed", type=int, default=0)
     parser.add_argument("--word2vec-seed", type=int, default=1)
     args = parser.parse_args()
@@ -153,8 +176,11 @@ def main() -> None:
     if args.num_nodes is not None and args.num_nodes < 1:
         parser.error("num-nodes must be positive")
 
-    edges = read_edges(args.edges, args.delimiter, args.skip_rows)
-    edges, num_nodes = map_to_row_indices(edges, args.node_ids, args.num_nodes)
+    edges, matrix_num_nodes = read_graph(
+        args.edges, args.delimiter, args.skip_rows, args.mat_key
+    )
+    node_count = args.num_nodes if args.num_nodes is not None else matrix_num_nodes
+    edges, num_nodes = map_to_row_indices(edges, args.node_ids, node_count)
 
     adjacency = csr_matrix(
         (np.ones(edges.shape[0], dtype=np.int32), (edges[:, 0], edges[:, 1])),
@@ -201,9 +227,7 @@ def main() -> None:
     )
 
     if len(model.wv) != num_nodes:
-        raise RuntimeError(
-            f"Expected embeddings for {num_nodes} nodes, got {len(model.wv)}"
-        )
+        raise RuntimeError(f"Expected {num_nodes} node embeddings, got {len(model.wv)}")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     model.wv.save_word2vec_format(str(args.output), binary=False)
