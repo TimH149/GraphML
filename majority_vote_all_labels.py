@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     ######## Hyperparameter Setting #########
     args = get_args()
-    args.data_name = "yelp"
+    # args.data_name = "yelp"
     ######## import data #########
     if args.data_name == "pcg":
         G = load_pcg(split_name=args.split_name, train_percent=args.train_percent)
