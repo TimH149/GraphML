@@ -7,8 +7,8 @@ from utils import row_normlize_sparsetensor
 from torch_sparse import spmm as sparsespmm
 from torch.nn import Conv1d, MaxPool1d, Linear
 
-import dgl.function as fn
-import dgl
+# import dgl.function as fn
+# import dgl
 from torch_geometric.graphgym import AtomEncoder, BondEncoder
 from utils import compute_identity
 
