@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from torch_geometric.utils import degree
 # for LSPE
 from utils import init_positional_encoding
-import dgl
+# import dgl
 from utils import compute_identity, compute_identity_sparse
 ######################### standard train function #########################
 def model_train():
@@ -545,7 +545,9 @@ if __name__ == "__main__":
 
     print(model)
     #######################################################################################################################################
-
+    if args.device == "cuda" and torch.cuda.is_available():
+        model = model.to(args.device)
+        G = G.to(args.device)
     #################################################################################### Train ############################################################################
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
