@@ -42,6 +42,12 @@ if __name__ == "__main__":
         G = load_citeseer()
 
 
+    device = torch.device("cuda" if args.use_gpu and torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    if device.type == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name(device)}")
+    G = G.to(device)
+
     ######## Hyperparameters #########
     input_dim = G.x.shape[1]
     hidden_dim = args.hidden_dim
@@ -83,6 +89,7 @@ if __name__ == "__main__":
         print("Created the MLP-3 model")
     
 
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     early_stopping = EarlyStopping(model_name=args.model_name, split_name=args.split_name,
                                    patience=args.patience, verbose=True)
@@ -157,7 +164,7 @@ if __name__ == "__main__":
     print("Optimization Finished!")
 
     # load the last checkpoint with the best model
-    model.load_state_dict(torch.load(args.model_name + "___" + args.split_name + '_checkpoint.pt'))
+    model.load_state_dict(torch.load(args.model_name + "___" + args.split_name + '_checkpoint.pt', map_location=device))
 
     output = model(x, y_pad, edge_index, G.deep_walk_emb)
 
