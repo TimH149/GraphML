@@ -847,3 +847,26 @@ def load_citeseer_split_train():
 
 
 
+
+
+MULTI_LABEL_DATASETS = ["pcg", "humloc", "eukloc", "yelp", "blogcatalog", "hyper", "dblp"]
+
+
+def load_dataset(data_name, split_name="split_0.pt", train_percent=0.6, feature_noise_ratio=None, homo_level=None):
+    """Load one of the multi-label datasets by its short name."""
+    if data_name == "pcg":
+        return load_pcg(split_name=split_name, train_percent=train_percent)
+    elif data_name == "humloc":
+        return load_humloc()
+    elif data_name == "eukloc":
+        return load_eukloc()
+    elif data_name == "yelp":
+        return load_yelp(split_name=split_name, train_percent=train_percent)
+    elif data_name == "blogcatalog":
+        return load_blogcatalog(split_name=split_name, train_percent=train_percent)
+    elif data_name == "hyper":
+        return load_hyper_data(split_name=split_name, train_percent=train_percent,
+                               feature_noise_ratio=feature_noise_ratio, homo_level=homo_level)
+    elif data_name == "dblp":
+        return load_DBLP(split_name=split_name, train_percent=train_percent)
+    raise ValueError(f"Unknown multi-label dataset '{data_name}', expected one of {MULTI_LABEL_DATASETS}")

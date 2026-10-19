@@ -1,0 +1,12 @@
+# data comes from the MLGNC repo (see README)
+data/
+# large / machine-specific outputs
+results/preds/
+results/logs/
+*_checkpoint_*.pt
+*_module_weights.pt
+FPLPGCN_weighted____split_0.pt_module_weights.png
+# Python and macOS
+__pycache__/
+*.pyc
+.DS_Store

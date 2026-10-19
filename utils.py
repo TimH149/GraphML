@@ -6,7 +6,7 @@ from torch_geometric.data import Data
 from scipy.sparse import coo_matrix
 from scipy.sparse import diags
 from torch_geometric.utils import add_remaining_self_loops
-from torch_scatter import scatter_add
+from torch_geometric.utils import scatter
 
 def row_normalize(tensor):
     # Calculate the sum of each row
@@ -137,7 +137,7 @@ def norm(edge_index, num_nodes, edge_weight=None, improved=False, dtype=None):
                                                        fill_value, num_nodes)
 
     row, col = edge_index
-    deg = scatter_add(edge_weight, row, dim=0, dim_size=num_nodes)
+    deg = scatter(edge_weight, row, dim=0, dim_size=num_nodes, reduce="sum")
     deg_inv_sqrt = deg.pow(-0.5)
     deg_inv_sqrt[deg_inv_sqrt == float('inf')] = 0
 
