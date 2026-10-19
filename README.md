@@ -81,7 +81,7 @@ python make_tables.py                                     # results/tables.md
 ```
 
 The grid skips runs that already have a results file, so you can stop it and start it again. Useful options:
-`--datasets`, `--experiments` (`baselines main ablation edge_weight loss cardinality`), `--seeds`. Anything it
+`--datasets`, `--experiments` (`baselines main ablation edge_weight loss cardinality weighting`), `--seeds`. Anything it
 doesn't recognise is passed on to `train.py`, e.g. `--epochs 20` for a quick test. Logs go to `results/logs/`.
 
 Use the CPU. On an M5 Pro the GPU (`--use_gpu`, MPS) was slower: these graphs are small and most of the time
@@ -109,7 +109,7 @@ module (DeepWalk embedding), concatenated and fed into one linear layer.
 | `--edge_weight` | `none` `feat_cos` `label_jaccard` `attention` `uniform` | Weighted mean over neighbours in the feature module. `feat_cos`: cosine of raw features. `label_jaccard`: soft Jaccard of estimated label vectors. `attention`: GAT. `uniform`: plain mean, a control |
 | `--loss` | `bce` `bce_weighted` `asl` | BCE, BCE with `pos_weight` = #neg/#pos per label, or ASL (γ+ = 0, γ− = 4, margin 0.05) |
 | `--card_head` | `none` `ce` `poisson` | Head that predicts each node's number of labels k, trained together with the main loss (`--lambda_card 0.1`, `--card_detach`) |
-| `--fusion` | `concat` `weighted` | `weighted` is our first idea (learned per-node module weights), kept for reference |
+| `--fusion` | `concat` `weighted` | `weighted` is our first idea (learned per-node module weights), with `--model linear` or `--model relu` (MLP-1); add `--gate_norm` to normalise the modules first, or `--gate_scale 3` to multiply the weights by 3 (equal weights then give the same input scale as plain MultiFix). Results and the learned weights are in the last section of `results/tables.md` and in `figures/module_weights.png` |
 | `--model` | `linear` `relu` `mlp`, baselines `features_mlp` `gcn` `majority_vote` `deepwalk_lr` | Which model to run |
 
 A few details:

@@ -299,10 +299,19 @@ class FPLPGCN_dw_weighted(nn.Module):
     u^m = LayerNorm(F_m h^m) without a learnable scale, and the classifier sees the weighted sum
     w^f u^f + w^l u^l + w^p u^p. The classifier can then no longer rescale one module to undo
     its weight, so the weights are the only per-module scale and can be read as module importance.
+
+    With nonlinear=True a ReLU follows every GCN layer except the last one of each module, as in
+    FPLPGCN_dw (MLP-1); otherwise the modules are linear, as in FPLPGCN_dw_linear.
+
+    weight_scale multiplies the softmax weights before they are applied. With weight_scale=3, equal
+    weights are 1 instead of 1/3, so the modules enter the output layer at the same scale as in plain
+    MultiFix. module_weights always stores the softmax weights themselves (they sum to 1).
     """
     def __init__(self, input_dim, hidden_dim, output_dim, num_gcn_layers=2, num_label_layers=10, dw_dim=64,
-                 gate_dim=16, gate_norm=False, multi_class=False):
+                 gate_dim=16, gate_norm=False, nonlinear=False, weight_scale=1.0, multi_class=False):
         super(FPLPGCN_dw_weighted, self).__init__()
+        self.nonlinear = nonlinear
+        self.weight_scale = weight_scale
 
         # GCN layers for feature aggregation
         self.gcn_layers = nn.ModuleList()
@@ -350,10 +359,14 @@ class FPLPGCN_dw_weighted(nn.Module):
         #GCN layers for feature aggregation
         for i, gcn_layer in enumerate(self.gcn_layers):
             x = gcn_layer(x, edge_index)
+            if self.nonlinear and i != len(self.gcn_layers) - 1:
+                x = F.relu(x)
 
         x_label = y
         for j, label_layer in enumerate(self.label_layers):
             x_label = label_layer(x_label, edge_index)
+            if self.nonlinear and j != len(self.label_layers) - 1:
+                x_label = F.relu(x_label)
 
         # one score per module, softmax over the three modules for every node
         scores = torch.cat((self.score(self.proj_fp(x)),
@@ -361,6 +374,7 @@ class FPLPGCN_dw_weighted(nn.Module):
                             self.score(self.proj_dw(deep_walk_emb))), dim=1)
         weights = F.softmax(scores, dim=1)
         self.module_weights = weights.detach()
+        weights = self.weight_scale * weights
 
         if self.gate_norm:
             x_fused = (weights[:, 0:1] * self.fuse_norm(self.fuse_fp(x))

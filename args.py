@@ -21,6 +21,8 @@ def build_parser():
     parser.add_argument('--epochs', type=int, default=1000, help='Number of training epochs')
     parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden unit')
     parser.add_argument('--gate_dim', type=int, default=16, help='Projection size used to score the modules in the weighted model')
+    parser.add_argument('--gate_scale', type=float, default=1.0,
+                        help='Multiply the softmax module weights by this (3 = same input scale as plain MultiFix)')
     parser.add_argument('--gate_norm', action='store_true', help='Normalise the modules and fuse them as a weighted sum in the weighted model')
     parser.add_argument('--use_gpu', action='store_true', help='Use GPU for training if available')
     parser.add_argument('--patience', type=int, default=100, help='Patience for early stopping')

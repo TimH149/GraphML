@@ -213,6 +213,48 @@ def plot_decision_rules(df, datasets, path):
     plot_style.save(fig, path)
 
 
+################################# Learned module weights #####################################
+
+WEIGHTING_CONFIGS = {"linear: learned weights": "linear__weighted__bce",
+                     "linear: normalised modules": "linear__weighted-norm__bce",
+                     "linear: learned weights × 3": "linear__weighted-x3__bce",
+                     "MLP-1: learned weights": "relu__weighted__bce",
+                     "MLP-1: normalised modules": "relu__weighted-norm__bce",
+                     "MLP-1: learned weights × 3": "relu__weighted-x3__bce"}
+
+
+def plot_module_weights(weights, datasets, path):
+    """weights: {(variant, dataset): array (nodes, 3)} pooled over seeds, test nodes only."""
+    variants = [v for v in WEIGHTING_CONFIGS if any(k[0] == v for k in weights)]
+    datasets = [d for d in datasets if any(k[1] == d for k in weights)]
+    if not variants:
+        return
+    modules = ["feature", "label", "positional"]
+    cols = min(len(variants), 3)
+    rows = (len(variants) + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(4.8 * cols, 3.0 * rows), squeeze=False, sharey=True)
+    for ax in axes.flat[len(variants):]:
+        ax.set_visible(False)
+    for ax, variant in zip(axes.flat, variants):
+        width, x = 0.8 / len(modules), np.arange(len(datasets))
+        for i, module in enumerate(modules):
+            w = [weights[(variant, d)][:, i] if (variant, d) in weights else np.array([np.nan]) for d in datasets]
+            ax.bar(x + (i - 1) * width, [v.mean() for v in w], width * 0.92, color=SERIES[i], label=module,
+                   yerr=[np.nan_to_num(v.std()) for v in w], ecolor=TEXT_SECONDARY, capsize=1.5,
+                   error_kw={"linewidth": 0.8})
+        ax.set_xticks(x, datasets)
+        ax.set_ylim(0, 1)
+        ax.set_title(variant, loc="left")
+        style_axis(ax)
+    for row in axes:
+        row[0].set_ylabel("Mean module weight\n(test nodes)")
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.04))
+    fig.suptitle("Learned per-node module weights (error bars: std across nodes)", x=0.01, ha="left", y=1.08)
+    fig.tight_layout()
+    plot_style.save(fig, path)
+
+
 ################################# Edge-weight interpretability #####################################
 
 def edge_weights_of(preds, layer=0):
@@ -325,11 +367,16 @@ if __name__ == "__main__":
 
     configs = stratified_configs(args.full_edge_weight)
     rng = np.random.default_rng(args.seed)
-    strat_rows, edge_rows, curves, examples = [], [], {}, []
+    strat_rows, edge_rows, curves, examples, module_weights = [], [], {}, [], {}
     datasets = []
     for dataset in args.datasets:
         runs = {name: find_runs(args.results_dir, dataset, c) for name, c in configs.items()}
         edge_runs = {v: find_runs(args.results_dir, dataset, c) for v, c in EDGE_VARIANTS.items()}
+        for variant, config in WEIGHTING_CONFIGS.items():
+            pooled = [torch.load(p) for p in find_runs(args.results_dir, dataset, config)]
+            if pooled:
+                module_weights[(variant, dataset)] = np.concatenate(
+                    [p["module_weights"][p["test_mask"]].numpy() for p in pooled])
         if not any(runs.values()) and not any(edge_runs.values()):
             print(f"{dataset}: no predictions in {args.results_dir}/preds, skipped")
             continue
@@ -361,6 +408,7 @@ if __name__ == "__main__":
                                                  torch.load(paths[0]), dataset, variant, rng)
 
     os.makedirs(args.out_dir, exist_ok=True)
+    plot_module_weights(module_weights, args.datasets, os.path.join(args.fig_dir, "module_weights.png"))
     if strat_rows:
         strat = pd.DataFrame(strat_rows)
         strat.drop(columns="order").to_csv(os.path.join(args.out_dir, "stratified.csv"), index=False)

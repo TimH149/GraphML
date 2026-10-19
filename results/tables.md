@@ -219,3 +219,44 @@ Top-k only changes F1; AP and AUROC are the same for every rule.
 | CE head | 0.092 ± 0.000 | 0.140 ± 0.007 | 0.203 ± 0.011 | 0.107 ± 0.013 |
 | CE head, detached | 0.092 ± 0.000 | 0.133 ± 0.009 | 0.198 ± 0.011 | **0.110 ± 0.008** |
 | Poisson head | **0.094 ± 0.001** | **0.196 ± 0.003** | **0.206 ± 0.006** | 0.106 ± 0.012 |
+
+## Learned module weighting (our first idea, discarded)
+
+Per-node softmax weights for the three modules, applied before the output layer. Without normalised modules, the output layer can rescale each module's block, so the weights do not show module importance; with normalised modules (`--gate_norm`) the weights are the only per-module scale. '× 3' multiplies the weights by 3 (`--gate_scale 3`), so equal weights give the modules the same scale as in plain MultiFix; the weights shown are always the softmax shares (summing to 1).
+
+**Macro-AP**
+
+| Model | blogcatalog | pcg | humloc | eukloc |
+|---|---|---|---|---|
+| Linear MultiFix (concatenation) | 0.178 ± 0.000 | 0.246 ± 0.002 | 0.255 ± 0.003 | 0.126 ± 0.013 |
+| Linear MultiFix, learned module weights | 0.067 ± 0.016 | 0.244 ± 0.005 | 0.263 ± 0.011 | 0.107 ± 0.008 |
+| Linear MultiFix, learned module weights × 3 | 0.182 ± 0.002 | 0.237 ± 0.006 | 0.258 ± 0.009 | 0.103 ± 0.003 |
+| Linear MultiFix, learned module weights, normalised modules | 0.178 ± 0.002 | 0.232 ± 0.013 | 0.237 ± 0.022 | 0.088 ± 0.006 |
+| MLP-1 (concatenation) | 0.178 ± 0.000 | **0.257 ± 0.003** | 0.269 ± 0.005 | **0.145 ± 0.026** |
+| MLP-1, learned module weights | 0.075 ± 0.018 | 0.246 ± 0.003 | 0.260 ± 0.018 | 0.139 ± 0.020 |
+| MLP-1, learned module weights × 3 | **0.186 ± 0.002** | 0.247 ± 0.003 | **0.286 ± 0.005** | 0.119 ± 0.036 |
+| MLP-1, learned module weights, normalised modules | 0.178 ± 0.001 | 0.237 ± 0.014 | 0.271 ± 0.010 | 0.083 ± 0.001 |
+
+**Macro-F1**
+
+| Model | blogcatalog | pcg | humloc | eukloc |
+|---|---|---|---|---|
+| Linear MultiFix (concatenation) | 0.153 ± 0.000 | 0.282 ± 0.004 | 0.291 ± 0.009 | 0.144 ± 0.010 |
+| Linear MultiFix, learned module weights | 0.044 ± 0.006 | 0.277 ± 0.007 | 0.275 ± 0.020 | 0.128 ± 0.010 |
+| Linear MultiFix, learned module weights × 3 | 0.188 ± 0.007 | 0.262 ± 0.007 | 0.267 ± 0.018 | 0.120 ± 0.009 |
+| Linear MultiFix, learned module weights, normalised modules | 0.187 ± 0.002 | 0.262 ± 0.008 | 0.244 ± 0.016 | 0.066 ± 0.013 |
+| MLP-1 (concatenation) | 0.153 ± 0.000 | **0.286 ± 0.005** | 0.276 ± 0.004 | 0.162 ± 0.030 |
+| MLP-1, learned module weights | 0.049 ± 0.007 | 0.280 ± 0.004 | 0.268 ± 0.022 | **0.168 ± 0.024** |
+| MLP-1, learned module weights × 3 | **0.196 ± 0.002** | 0.278 ± 0.006 | **0.301 ± 0.007** | 0.135 ± 0.033 |
+| MLP-1, learned module weights, normalised modules | 0.186 ± 0.004 | 0.269 ± 0.015 | 0.274 ± 0.003 | 0.086 ± 0.003 |
+
+**Learned module weights on the test nodes (feature / label / positional; mean over seeds)**
+
+| Model | blogcatalog | pcg | humloc | eukloc |
+|---|---|---|---|---|
+| Linear MultiFix, learned module weights | 0.86 / 0.04 / 0.10 (std across nodes ≤ 0.015) | 0.16 / 0.12 / 0.72 (std across nodes ≤ 0.116) | 0.34 / 0.10 / 0.56 (std across nodes ≤ 0.173) | 0.22 / 0.50 / 0.29 (std across nodes ≤ 0.042) |
+| Linear MultiFix, learned module weights × 3 | 0.09 / 0.11 / 0.80 (std across nodes ≤ 0.066) | 0.02 / 0.26 / 0.73 (std across nodes ≤ 0.095) | 0.07 / 0.28 / 0.66 (std across nodes ≤ 0.132) | 0.08 / 0.55 / 0.37 (std across nodes ≤ 0.065) |
+| Linear MultiFix, learned module weights, normalised modules | 0.04 / 0.08 / 0.87 (std across nodes ≤ 0.018) | 0.13 / 0.31 / 0.56 (std across nodes ≤ 0.033) | 0.12 / 0.32 / 0.55 (std across nodes ≤ 0.075) | 0.39 / 0.32 / 0.29 (std across nodes ≤ 0.018) |
+| MLP-1, learned module weights | 0.83 / 0.02 / 0.15 (std across nodes ≤ 0.037) | 0.24 / 0.06 / 0.70 (std across nodes ≤ 0.116) | 0.50 / 0.09 / 0.41 (std across nodes ≤ 0.144) | 0.64 / 0.16 / 0.20 (std across nodes ≤ 0.062) |
+| MLP-1, learned module weights × 3 | 0.03 / 0.10 / 0.87 (std across nodes ≤ 0.052) | 0.15 / 0.19 / 0.66 (std across nodes ≤ 0.105) | 0.14 / 0.23 / 0.63 (std across nodes ≤ 0.101) | 0.18 / 0.36 / 0.46 (std across nodes ≤ 0.085) |
+| MLP-1, learned module weights, normalised modules | 0.04 / 0.10 / 0.86 (std across nodes ≤ 0.020) | 0.12 / 0.34 / 0.54 (std across nodes ≤ 0.034) | 0.11 / 0.28 / 0.61 (std across nodes ≤ 0.097) | 0.21 / 0.40 / 0.38 (std across nodes ≤ 0.016) |

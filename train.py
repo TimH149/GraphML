@@ -40,7 +40,7 @@ def get_train_args(argv=None):
                              'features_mlp, gcn, majority_vote, deepwalk_lr')
     parser.add_argument('--fusion', type=str, default='concat', choices=['concat', 'weighted'],
                         help='How the three modules are fused: concat (MultiFix) or weighted '
-                             '(learned softmax weights, discarded idea; linear model only)')
+                             '(learned softmax weights, discarded idea; with --model linear or relu)')
     parser.add_argument('--loss', type=str, default='bce', choices=LOSSES,
                         help='Training loss: bce, bce_weighted (per-label pos_weight = #neg / #pos on '
                              'the training nodes) or asl (asymmetric loss)')
@@ -75,8 +75,8 @@ def get_train_args(argv=None):
 
     if args.data_name not in MULTI_LABEL_DATASETS:
         parser.error(f"--data_name must be a multi-label dataset: {MULTI_LABEL_DATASETS}")
-    if args.fusion == 'weighted' and args.model != 'linear':
-        parser.error("--fusion weighted is only implemented for --model linear")
+    if args.fusion == 'weighted' and args.model not in ('linear', 'relu'):
+        parser.error("--fusion weighted is only implemented for --model linear and --model relu (MLP-1)")
     if args.model in NEURAL_BASELINES + SCORE_BASELINES and (
             args.fusion != 'concat' or args.edge_weight != 'none' or args.card_head != 'none'):
         parser.error("the baselines do not support --fusion, --edge_weight or --card_head")
@@ -113,7 +113,8 @@ def build_model(args, G):
     if args.model in NEURAL_BASELINES:
         return build_baseline(args.model, G.x.shape[1], args.hidden_dim, G.y.shape[1])
     if args.fusion == 'weighted':
-        return FPLPGCN_dw_weighted(gate_dim=args.gate_dim, gate_norm=args.gate_norm, **kwargs)
+        return FPLPGCN_dw_weighted(gate_dim=args.gate_dim, gate_norm=args.gate_norm,
+                                   nonlinear=args.model == 'relu', weight_scale=args.gate_scale, **kwargs)
     model_class = {'linear': FPLPGCN_dw_linear, 'relu': FPLPGCN_dw, 'mlp': FPLPGCN_dw_MLP}[args.model]
     return model_class(**kwargs)
 
@@ -121,7 +122,8 @@ def build_model(args, G):
 def make_run_id(args):
     # the score baselines are not trained, so fusion and loss do not apply
     parts = [args.data_name, args.model] if args.model in SCORE_BASELINES else \
-        [args.data_name, args.model, args.fusion, args.loss]
+        [args.data_name, args.model, args.fusion + ("-norm" if args.fusion == 'weighted' and args.gate_norm else "")
+         + (f"-x{args.gate_scale:g}" if args.fusion == 'weighted' and args.gate_scale != 1 else ""), args.loss]
     if args.edge_weight != 'none':
         parts.append("ew-" + args.edge_weight)
     if args.card_head != 'none':

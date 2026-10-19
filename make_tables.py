@@ -53,6 +53,42 @@ def short_name(key):
     return " + ".join(names) or "MultiFix"
 
 
+MODULES = ["feature", "label", "positional"]
+WEIGHTING_ROWS = [("Linear MultiFix (concatenation)", "linear__concat__bce"),
+                  ("Linear MultiFix, learned module weights", "linear__weighted__bce"),
+                  ("Linear MultiFix, learned module weights × 3", "linear__weighted-x3__bce"),
+                  ("Linear MultiFix, learned module weights, normalised modules", "linear__weighted-norm__bce"),
+                  ("MLP-1 (concatenation)", "relu__concat__bce"),
+                  ("MLP-1, learned module weights", "relu__weighted__bce"),
+                  ("MLP-1, learned module weights × 3", "relu__weighted-x3__bce"),
+                  ("MLP-1, learned module weights, normalised modules", "relu__weighted-norm__bce")]
+
+
+def module_weight_table(all_runs, results_dir, datasets):
+    """Mean learned module weights on the test nodes (averaged over seeds) and their spread across nodes."""
+    lines = ["**Learned module weights on the test nodes (feature / label / positional; mean over seeds)**", "",
+             "| Model | " + " | ".join(datasets) + " |", "|---|" + "---|" * len(datasets)]
+    for name, key in [(n, k) for n, k in WEIGHTING_ROWS if "__weighted" in k]:
+        cells = []
+        for d in datasets:
+            runs = all_runs[(all_runs["dataset"] == d) & (all_runs["key"] == key)]
+            means, stds = [], []
+            for run_id in runs["run_id"]:
+                path = os.path.join(results_dir, "preds", run_id + ".pt")
+                if os.path.exists(path):
+                    preds = torch.load(path)
+                    w = preds["module_weights"][preds["test_mask"]]
+                    means.append(w.mean(dim=0).numpy())
+                    stds.append(w.std(dim=0).numpy())
+            if not means:
+                cells.append("N/A")
+                continue
+            m, sd = np.mean(means, axis=0), np.mean(stds, axis=0)
+            cells.append(" / ".join(f"{v:.2f}" for v in m) + f" (std across nodes ≤ {sd.max():.3f})")
+        lines.append(f"| {name} | " + " | ".join(cells) + " |")
+    return lines + [""]
+
+
 def chosen_rules(all_runs, results_dir):
     """{(dataset, key, 'micro'|'macro'): rule} from cross-fitted validation F1, averaged over seeds."""
     labels, scores = {}, []
@@ -225,6 +261,16 @@ if __name__ == "__main__":
     for metric, name, higher in [("card_acc", "Exact-k accuracy", True), ("card_mae", "Mean absolute error of k", False),
                                  ("macro_f1@topk_pred", "Macro-F1, top-k predicted", True)]:
         out += table(results, card_rows, metric, datasets, name, first_column="Head", higher_is_better=higher)
+
+    out += ["## Learned module weighting (our first idea, discarded)", "",
+            "Per-node softmax weights for the three modules, applied before the output layer. Without normalised "
+            "modules, the output layer can rescale each module's block, so the weights do not show module "
+            "importance; with normalised modules (`--gate_norm`) the weights are the only per-module scale. "
+            "'× 3' multiplies the weights by 3 (`--gate_scale 3`), so equal weights give the modules the same "
+            "scale as in plain MultiFix; the weights shown are always the softmax shares (summing to 1).", ""]
+    for metric, name in [("ap_macro", "Macro-AP"), ("macro_f1@chosen", "Macro-F1")]:
+        out += table(results, WEIGHTING_ROWS, metric, datasets, name)
+    out += module_weight_table(all_runs, args.results_dir, datasets)
 
     path = os.path.join(args.results_dir, "tables.md")
     with open(path, "w") as f:
