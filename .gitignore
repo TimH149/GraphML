@@ -10,3 +10,4 @@ FPLPGCN_weighted____split_0.pt_module_weights.png
 __pycache__/
 *.pyc
 .DS_Store
+Result/

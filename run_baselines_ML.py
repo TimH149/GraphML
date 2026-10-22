@@ -1,4 +1,4 @@
-from baseline_models import GCN, GAT, SAGE_sup, H2GCN, GCN_LPA, MLP, LANC, GatedGCNNet
+﻿from baseline_models import GCN, GAT, SAGE_sup, H2GCN, GCN_LPA, MLP, LANC, GatedGCNNet
 from data_loader import load_pcg, load_humloc, load_eukloc, load_yelp, load_blogcatalog, load_hyper_data, load_DBLP, load_cora, load_citeseer
 from earlystopping import EarlyStopping
 from args import get_args
@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from torch_geometric.utils import degree
 # for LSPE
 from utils import init_positional_encoding
-import dgl
+# import dgl
 from utils import compute_identity, compute_identity_sparse
 ######################### standard train function #########################
 def model_train():
@@ -545,7 +545,10 @@ if __name__ == "__main__":
 
     print(model)
     #######################################################################################################################################
-
+    if args.use_gpu and torch.cuda.is_available():
+        args.device = "cuda"
+        model = model.to(args.device)
+        G = G.to(args.device)
     #################################################################################### Train ############################################################################
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)

@@ -1,0 +1,85 @@
+Test performance CorGCN AP (mean) ± std (over 3 splits)
+
+-----------PCG------------------------------------
+k_num = 19, bs = 1024, lr=0.001
+Final test hamming loss performance: 0.13027648978189935 ± 0.003291181625936457
+Final test ranking loss performance: 0.25790232884256586 ± 0.01001991518989693
+Final test macro-F1 performance: 0.05333699803292676 ± 0.01358380574576148
+Final test micro-F1 performance: 0.08972667016409036 ± 0.02371131309715681
+Final test macro-AP performance: 0.25562480516210134 ± 0.006365114005635954
+Final test micro-AP performance: 0.32537739097079127 ± 0.0076321357744420885
+Final test macro-AUC performance: 0.651163838336118 ± 0.003531645296969201
+Final test micro-AUC performance: 0.7409133136182788 ± 0.0034172391239377406
+Final test LRAP performance: 0.5022512237844486 ± 0.0016761482262673078
+
+-----------BLOGCATALOG----------------------------
+k_num = 5, bs = 2048 (memory constraints), lr=0.001
+Final test hamming loss performance: 0.03291199025566452 ± 0.00047501981288758404
+Final test ranking loss performance: 0.20159236537538225 ± 0.0048767402764985
+Final test macro-F1 performance: 0.08445143495708513 ± 0.012676287581628176
+Final test micro-F1 performance: 0.22974859323798283 ± 0.021924574481252727
+Final test macro-AP performance: 0.15432048252407607 ± 0.0041964650301198475
+Final test micro-AP performance: 0.28189588347667155 ± 0.007865574107944423
+Final test macro-AUC performance: 0.6887045496924563 ± 0.010725668008196949
+Final test micro-AUC performance: 0.7995945144925426 ± 0.0027744377228593716
+Final test LRAP performance: 0.4343077410476857 ± 0.00334748732648829
+
+-----------DBLP-------------------------------------
+k_num = 10, bs = 2048 , lr=0.001
+Final test hamming loss performance: 0.07971898043314173 ± 0.0008141615085862018
+Final test ranking loss performance: 0.051946041146528864 ± 0.002438868337368487
+Final test macro-F1 performance: 0.848319501214441 ± 0.001582689693859237
+Final test micro-F1 performance: 0.8619773602019816 ± 0.0016505583475460908
+Final test macro-AP performance: 0.9175828949825923 ± 0.0026421387059923445
+Final test micro-AP performance: 0.9343459202302302 ± 0.002048301900575719
+Final test macro-AUC performance: 0.961901003054732 ± 0.001269695306645148
+Final test micro-AUC performance: 0.9655464575875182 ± 0.0012385798004012668
+Final test LRAP performance: 0.9430832155967143 ± 0.0023164208724288735
+
+-----------SYNTHETIC025-----------------------------
+k_num = 5, bs = 2048, lr = 0.001
+Final test hamming loss performance: 0.1399722222222222 ± 0.004286787049746761
+Final test ranking loss performance: 0.1812371189103581 ± 0.0068362797226628694
+Final test macro-F1 performance: 0.10726826765784847 ± 0.00031570752206008036
+Final test micro-F1 performance: 0.5246550283282754 ± 0.02111176713850113
+Final test macro-AP performance: 0.19604937133544223 ± 0.0031683667952256494
+Final test micro-AP performance: 0.5397152058288882 ± 0.022310547770309636
+Final test macro-AUC performance: 0.5508318968812623 ± 0.006638914947103197
+Final test micro-AUC performance: 0.8447569346231679 ± 0.0025102726790436443
+Final test LRAP performance: 0.626442448735733 ± 0.00990763067678868
+
+-----------SYNTHETIC045-----------------------------
+k_num = 15, bs = 2048, lr = 0.001
+Final test hamming loss performance: 0.09497222222222222 ± 0.001612068680949659
+Final test ranking loss performance: 0.13755221837332585 ± 0.006957050554836609
+Final test macro-F1 performance: 0.1888727426599288 ± 0.0054164162773621075
+Final test micro-F1 performance: 0.6553884270349438 ± 0.0051025143690998555
+Final test macro-AP performance: 0.31889441142926805 ± 0.008153547222646211
+Final test micro-AP performance: 0.7454756184606568 ± 0.00668460363589579
+Final test macro-AUC performance: 0.7387884102858111 ± 0.005723023215565245
+Final test micro-AUC performance: 0.8976520674652809 ± 0.004264331545375496
+Final test LRAP performance: 0.738028647068707 ± 0.00815684591052889
+
+-----------SYNTHETIC065-----------------------------
+k_num = 10, bs = 2048, lr = 0.001
+Final test hamming loss performance: 0.08474999999999999 ± 0.002163459164291197
+Final test ranking loss performance: 0.1129432694499677 ± 0.0063204165854072085
+Final test macro-F1 performance: 0.24875353388010743 ± 0.006953351418373283
+Final test micro-F1 performance: 0.6987642582153984 ± 0.005329260376064228
+Final test macro-AP performance: 0.3805363552304371 ± 0.0077807285385862405
+Final test micro-AP performance: 0.7817228767834887 ± 0.0035898471036415946
+Final test macro-AUC performance: 0.8013861623757323 ± 0.011650616995049563
+Final test micro-AUC performance: 0.916667413827521 ± 0.002871084596164922
+Final test LRAP performance: 0.7726247729202628 ± 0.0019274988408866846
+
+-----------SYNTHETIC085-----------------------------
+k_num = 5, bs = 2048, lr = 0.001
+Final test hamming loss performance: 0.08122222222222222 ± 0.001812167381144453
+Final test ranking loss performance: 0.09130286268861475 ± 0.002700618322113609
+Final test macro-F1 performance: 0.2845769485623799 ± 0.004996676555600597
+Final test micro-F1 performance: 0.7148054701280687 ± 0.005075005143376279
+Final test macro-AP performance: 0.4367222310637075 ± 0.014119014627447453
+Final test micro-AP performance: 0.8027101725183695 ± 0.007901258996100963
+Final test macro-AUC performance: 0.848363382885046 ± 0.005729754800585258
+Final test micro-AUC performance: 0.9312650809139541 ± 0.0022127775951303816
+Final test LRAP performance: 0.7958886631094867 ± 0.0029673682875995715

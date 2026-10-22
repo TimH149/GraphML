@@ -1,4 +1,4 @@
-from metrics import *
+﻿from metrics import *
 import numpy as np
 import os
 import scipy
@@ -111,9 +111,16 @@ def load_hyper_data(data_name="Hyperspheres_10_10_0", split_name="split_0.pt", t
         ############### Only Relevant Features ##############
         features = torch.tensor(features).float()[:, :10]
         print("feature dim: ", features.shape[1])
-        edges = torch.tensor(np.genfromtxt(osp.join(path, data_name, homo_level+".txt"),
-                             dtype=np.float32, delimiter=',')).long()
-        edge_index = torch.transpose(edges, 0, 1)
+        edge_path = osp.join(path, data_name, homo_level + ".txt")
+        with open(edge_path, "r", encoding="utf-8") as edge_file:
+            first_line = edge_file.readline()
+        delimiter = "," if "," in first_line else None
+        edges = np.genfromtxt(
+            edge_path, dtype=np.float32, delimiter=delimiter, ndmin=2
+        )
+        if edges.shape[1] < 2:
+            raise ValueError(f"Expected two edge columns in {edge_path}")
+        edge_index = torch.as_tensor(edges[:, :2], dtype=torch.long).t().contiguous()
         print("loading the edges for homophily level...")
         print(edge_index.shape)
 
@@ -188,7 +195,15 @@ def load_hyper_data(data_name="Hyperspheres_10_10_0", split_name="split_0.pt", t
     G.LabelCor = row_normalize(LabelCor)
 
     # load deep walk embeddings
-    emb_model = KeyedVectors.load_word2vec_format("data/Hyperspheres_10_10_0/hypersphere.emb", binary=False)
+    embedding_path = osp.join(path, data_name, "hypersphere.emb")
+    if not os.path.isfile(embedding_path):
+        edges_input = osp.join(path, data_name, "edges.txt.zip")
+        raise FileNotFoundError(
+            f"Missing DeepWalk embeddings at {embedding_path}. Generate them with: "
+            f"python generate_deepwalk_embeddings.py --edges {edges_input} "
+            f"--output {embedding_path} --num-nodes {G.num_nodes}"
+        )
+    emb_model = KeyedVectors.load_word2vec_format(embedding_path, binary=False)
     deep_walk_emb = np.asarray([emb_model[str(node)] for node in range(G.num_nodes)])
     G.deep_walk_emb = torch.from_numpy(deep_walk_emb).float()
 
