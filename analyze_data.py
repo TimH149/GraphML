@@ -146,7 +146,7 @@ def plot_hop_similarity(sim, path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Dataset analyses: cardinality and hop-distance label similarity")
-    parser.add_argument("--datasets", nargs="+", default=["blogcatalog", "pcg", "humloc", "eukloc", "dblp"])
+    parser.add_argument("--datasets", nargs="+", default=["blogcatalog", "pcg", "dblp", "hyper_homo025", "hyper_homo045", "hyper_homo065", "hyper_homo085"])
     parser.add_argument("--num_sources", type=int, default=1000, help="Source nodes sampled for the pair analysis")
     parser.add_argument("--pairs_per_type", type=int, default=20, help="Pairs per source node and pair type")
     parser.add_argument("--knn", type=int, default=10, help="k for the nearest-neighbour pairs")

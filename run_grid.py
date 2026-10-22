@@ -9,8 +9,10 @@ Experiments (select with --experiments, default all):
   cardinality  CE head, CE head with detached input, Poisson head (each alone)
   weighting    our first idea: learned per-node module weights (--fusion weighted), without and with
                normalised modules (--gate_norm), and with the weights multiplied by 3 (--gate_scale 3, the
-               same input scale as plain MultiFix), on the linear MultiFix and on MLP-1 (--model relu, also
-               run without weighting for comparison)
+               same input scale as plain MultiFix)
+
+Every MultiFix configuration uses the base model given by --model (default relu = MLP-1); the baselines
+keep their own model.
 
 The decision-rule comparison needs no extra runs: every run reports F1 under all four rules.
 
@@ -34,7 +36,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from train import get_train_args, make_run_id
 
-DATASETS = ["blogcatalog", "pcg", "humloc", "eukloc", "dblp"]
+# the datasets of the course assignment (default), and all datasets that can be run
+DATASETS = ["blogcatalog", "pcg", "dblp", "hyper_homo025", "hyper_homo045", "hyper_homo065", "hyper_homo085"]
+ALL_DATASETS = DATASETS + ["humloc", "eukloc"]
+HOMOPHILY_LEVELS = ["homo025", "homo045", "homo065", "homo085"]
 
 # files each loader in data_loader.py reads, relative to the repository root
 REQUIRED_FILES = {
@@ -50,6 +55,12 @@ REQUIRED_FILES = {
     "dblp": ["data/dblp/features.txt", "data/dblp/labels.txt", "data/dblp/dblp.edgelist", "data/dblp/dblp.emb",
              "data/dblp/dblp_0.6/{split}"],
 }
+# synthetic Hypersphere graphs: shared labels/features/splits, one edge file and one embedding per level
+for _level in HOMOPHILY_LEVELS:
+    REQUIRED_FILES["hyper_" + _level] = [
+        "data/Hyperspheres_10_10_0/labels.csv", "data/Hyperspheres_10_10_0/features.csv",
+        f"data/Hyperspheres_10_10_0/{_level}.txt", f"data/Hyperspheres_10_10_0/{_level}.emb",
+        "data/Hyperspheres_10_10_0_0.6/{split}"]
 
 
 def experiments(full_edge_weight):
@@ -72,10 +83,8 @@ def experiments(full_edge_weight):
         "edge_weight": [{"edge_weight": kind} for kind in ["feat_cos", "label_jaccard", "attention", "uniform"]],
         "loss": [{"loss": "bce_weighted"}, {"loss": "asl"}],
         "cardinality": [{"card_head": "ce"}, {"card_head": "ce", "card_detach": True}, {"card_head": "poisson"}],
-        "weighting": [{"fusion": "weighted"}, {"fusion": "weighted", "gate_norm": True},
-                      {"model": "relu"}, {"model": "relu", "fusion": "weighted"},
-                      {"model": "relu", "fusion": "weighted", "gate_norm": True},
-                      {"fusion": "weighted", "gate_scale": 3}, {"model": "relu", "fusion": "weighted", "gate_scale": 3}],
+        "weighting": [{}, {"fusion": "weighted"}, {"fusion": "weighted", "gate_norm": True},
+                      {"fusion": "weighted", "gate_scale": 3}],
     }
 
 
@@ -101,11 +110,13 @@ def skip_reason(dataset, config, split_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the experiment grid")
-    parser.add_argument("--datasets", nargs="+", default=DATASETS, choices=DATASETS)
+    parser.add_argument("--datasets", nargs="+", default=DATASETS, choices=ALL_DATASETS)
     parser.add_argument("--experiments", nargs="+", default=None,
                         help="Subset of: baselines main ablation edge_weight loss cardinality weighting (default all)")
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2, 3, 4])
     parser.add_argument("--split_name", default="split_0.pt")
+    parser.add_argument("--model", default="relu", choices=["relu", "linear", "mlp"],
+                        help="Base MultiFix model for all non-baseline configurations (relu = MLP-1)")
     parser.add_argument("--full_edge_weight", default="label_jaccard", choices=["feat_cos", "label_jaccard", "attention"],
                         help="Edge weighting used in the full model and the ablation")
     parser.add_argument("--results_dir", default="results")
@@ -126,6 +137,7 @@ if __name__ == "__main__":
     configs = []
     for name in selected:
         for config in all_experiments[name]:
+            config = {"model": args.model, **config}  # baselines set their own model
             if config not in configs:
                 configs.append(config)
 

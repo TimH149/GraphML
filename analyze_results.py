@@ -37,18 +37,20 @@ from data_loader import load_dataset
 from evaluation import predict_threshold, predict_topk
 
 
+base = "relu"  # the base MultiFix model of our variants (relu = MLP-1); set from --model
+
+
 def stratified_configs(edge_weight):
     """Display name -> run-id part between the dataset and the split."""
-    return {"MultiFix": "linear__concat__bce",
-            f"+ {edge_weight}": f"linear__concat__bce__ew-{edge_weight}",
-            "+ ASL": "linear__concat__asl",
-            "+ cardinality head": "linear__concat__bce__card-ce",
-            "Full model": f"linear__concat__asl__ew-{edge_weight}__card-ce"}
+    return {"MultiFix": f"{base}__concat__bce",
+            f"+ {edge_weight}": f"{base}__concat__bce__ew-{edge_weight}",
+            "+ ASL": f"{base}__concat__asl",
+            "+ cardinality head": f"{base}__concat__bce__card-ce",
+            "Full model": f"{base}__concat__asl__ew-{edge_weight}__card-ce"}
 
 
-EDGE_VARIANTS = {"feat_cos": "linear__concat__bce__ew-feat_cos",
-                 "label_jaccard": "linear__concat__bce__ew-label_jaccard",
-                 "attention": "linear__concat__bce__ew-attention"}
+def edge_variants():
+    return {v: f"{base}__concat__bce__ew-{v}" for v in ["feat_cos", "label_jaccard", "attention"]}
 RULE_NAMES = {"threshold_0.5": "threshold 0.5", "per_label_threshold": "per-label threshold",
               "topk_pred": "top-k predicted", "topk_oracle": "top-k oracle"}
 
@@ -213,19 +215,64 @@ def plot_decision_rules(df, datasets, path):
     plot_style.save(fig, path)
 
 
+################################# Homophily sweep (synthetic graphs) #####################################
+
+HOMOPHILY = {"hyper_homo025": 0.25, "hyper_homo045": 0.45, "hyper_homo065": 0.65, "hyper_homo085": 0.85}
+
+
+def plot_homophily_sweep(results_dir, edge_weight, path):
+    """Test macro-AP against the homophily of the synthetic graphs, for our variants and for the baselines."""
+    summary_path = os.path.join(results_dir, "summary.csv")
+    if not os.path.exists(summary_path):
+        return
+    summary = pd.read_csv(summary_path)
+    summary = summary[summary["dataset"].isin(HOMOPHILY)]
+    if summary.empty:
+        return
+    summary["key"] = [c[len(d) + 2:].rsplit("__split_", 1)[0] for c, d in zip(summary["config"], summary["dataset"])]
+    panels = [("(a) MultiFix and our extensions", [
+                  ("MultiFix", f"{base}__concat__bce"), ("+ ASL", f"{base}__concat__asl"),
+                  (f"+ edge weighting ({edge_weight})", f"{base}__concat__bce__ew-{edge_weight}"),
+                  ("+ uniform (control)", f"{base}__concat__bce__ew-uniform"),
+                  ("+ cardinality head", f"{base}__concat__bce__card-ce"),
+                  ("all three", f"{base}__concat__asl__ew-{edge_weight}__card-ce")]),
+              ("(b) MultiFix and baselines", [
+                  ("MultiFix", f"{base}__concat__bce"), ("MLP (features only)", "features_mlp__concat__bce"),
+                  ("GCN", "gcn__concat__bce"), ("MajorityVote", "majority_vote"), ("DeepWalk + LR", "deepwalk_lr")])]
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.6), sharey=True)
+    for ax, (title, lines) in zip(axes, panels):
+        for i, (name, key) in enumerate(lines):
+            rows = summary[summary["key"] == key]
+            if rows.empty:
+                continue
+            x = rows["dataset"].map(HOMOPHILY).to_numpy()
+            order = np.argsort(x)
+            ax.errorbar(x[order], rows["test_ap_macro_mean"].to_numpy()[order],
+                        yerr=np.nan_to_num(rows["test_ap_macro_std"].to_numpy()[order]),
+                        color=SERIES[i], marker="o", capsize=2, label=name)
+        ax.set_xticks(list(HOMOPHILY.values()))
+        ax.set_xlabel("Homophily of the synthetic graph")
+        ax.set_title(title, loc="left")
+        ax.legend(frameon=False, fontsize=7)
+        style_axis(ax, grid_axis="both")
+    axes[0].set_ylabel("Test macro-AP")
+    fig.suptitle("Synthetic Hypersphere graphs: same nodes and labels, increasing homophily (mean ± std over seeds)",
+                 x=0.01, ha="left", y=1.02)
+    fig.tight_layout()
+    plot_style.save(fig, path)
+
+
 ################################# Learned module weights #####################################
 
-WEIGHTING_CONFIGS = {"linear: learned weights": "linear__weighted__bce",
-                     "linear: normalised modules": "linear__weighted-norm__bce",
-                     "linear: learned weights × 3": "linear__weighted-x3__bce",
-                     "MLP-1: learned weights": "relu__weighted__bce",
-                     "MLP-1: normalised modules": "relu__weighted-norm__bce",
-                     "MLP-1: learned weights × 3": "relu__weighted-x3__bce"}
+def weighting_configs():
+    return {"learned weights": f"{base}__weighted__bce",
+            "learned weights × 3": f"{base}__weighted-x3__bce",
+            "normalised modules": f"{base}__weighted-norm__bce"}
 
 
 def plot_module_weights(weights, datasets, path):
     """weights: {(variant, dataset): array (nodes, 3)} pooled over seeds, test nodes only."""
-    variants = [v for v in WEIGHTING_CONFIGS if any(k[0] == v for k in weights)]
+    variants = [v for v in weighting_configs() if any(k[0] == v for k in weights)]
     datasets = [d for d in datasets if any(k[1] == d for k in weights)]
     if not variants:
         return
@@ -325,7 +372,7 @@ def plot_edge_weights(curves, datasets, path, num_bins=8):
         return
     fig, axes = plt.subplots(1, len(datasets), figsize=(3.6 * len(datasets), 3.2), squeeze=False, sharey=True)
     for ax, dataset in zip(axes[0], datasets):
-        for i, variant in enumerate(EDGE_VARIANTS):
+        for i, variant in enumerate(edge_variants()):
             if (dataset, variant) not in curves:
                 continue
             relative, jaccard = curves[(dataset, variant)]
@@ -357,13 +404,16 @@ def plot_edge_weights(curves, datasets, path, num_bins=8):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Stratified evaluation and edge-weight interpretability")
     parser.add_argument("--results_dir", default="results")
-    parser.add_argument("--datasets", nargs="+", default=["blogcatalog", "pcg", "humloc", "eukloc", "dblp"])
+    parser.add_argument("--datasets", nargs="+", default=["blogcatalog", "pcg", "dblp", "hyper_homo025", "hyper_homo045", "hyper_homo065", "hyper_homo085"])
+    parser.add_argument("--model", default="relu", choices=["relu", "linear", "mlp"],
+                        help="Base MultiFix model of our variants (relu = MLP-1)")
     parser.add_argument("--full_edge_weight", default="label_jaccard",
                         help="Edge weighting of the full model in the grid (run_grid.py --full_edge_weight)")
     parser.add_argument("--out_dir", default="results/analysis")
     parser.add_argument("--fig_dir", default="figures")
     parser.add_argument("--seed", type=int, default=0, help="Seed for picking the example nodes")
     args = parser.parse_args()
+    base = args.model
 
     configs = stratified_configs(args.full_edge_weight)
     rng = np.random.default_rng(args.seed)
@@ -371,8 +421,8 @@ if __name__ == "__main__":
     datasets = []
     for dataset in args.datasets:
         runs = {name: find_runs(args.results_dir, dataset, c) for name, c in configs.items()}
-        edge_runs = {v: find_runs(args.results_dir, dataset, c) for v, c in EDGE_VARIANTS.items()}
-        for variant, config in WEIGHTING_CONFIGS.items():
+        edge_runs = {v: find_runs(args.results_dir, dataset, c) for v, c in edge_variants().items()}
+        for variant, config in weighting_configs().items():
             pooled = [torch.load(p) for p in find_runs(args.results_dir, dataset, config)]
             if pooled:
                 module_weights[(variant, dataset)] = np.concatenate(
@@ -408,6 +458,7 @@ if __name__ == "__main__":
                                                  torch.load(paths[0]), dataset, variant, rng)
 
     os.makedirs(args.out_dir, exist_ok=True)
+    plot_homophily_sweep(args.results_dir, args.full_edge_weight, os.path.join(args.fig_dir, "homophily_sweep.png"))
     plot_module_weights(module_weights, args.datasets, os.path.join(args.fig_dir, "module_weights.png"))
     if strat_rows:
         strat = pd.DataFrame(strat_rows)

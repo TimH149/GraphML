@@ -33,10 +33,10 @@ from model import FPLPGCN_dw, FPLPGCN_dw_linear, FPLPGCN_dw_MLP, FPLPGCN_dw_weig
 def get_train_args(argv=None):
     parser = build_parser()
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
-    parser.add_argument('--model', type=str, default='linear',
+    parser.add_argument('--model', type=str, default='relu',
                         choices=['linear', 'relu', 'mlp'] + NEURAL_BASELINES + SCORE_BASELINES,
-                        help='MultiFix variant: linear = FPLPGCN_dw_linear (original MultiFix), '
-                             'relu = FPLPGCN_dw, mlp = FPLPGCN_dw_MLP; or a baseline from baselines.py: '
+                        help='MultiFix variant: relu = FPLPGCN_dw (MLP-1, our base model), '
+                             'linear = FPLPGCN_dw_linear, mlp = FPLPGCN_dw_MLP; or a baseline from baselines.py: '
                              'features_mlp, gcn, majority_vote, deepwalk_lr')
     parser.add_argument('--fusion', type=str, default='concat', choices=['concat', 'weighted'],
                         help='How the three modules are fused: concat (MultiFix) or weighted '

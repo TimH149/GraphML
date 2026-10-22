@@ -5,6 +5,9 @@ one module's output is removed and the per-label AP on the test nodes is measure
 
     logits = W_f h_f + W_l h_l + W_p h_p + b      (MultiFix's linear output layer)
 
+This holds for MLP-1 (--model relu, the default) and the linear MultiFix: both end in one linear layer over
+the concatenated module outputs, so removing a module's term is exact.
+
   --ablation zero   h_m = 0, i.e. module m's term W_m h_m is dropped (default)
   --ablation mean   h_m = its mean over all nodes, i.e. only the node-specific part of module m is dropped
 
@@ -31,7 +34,7 @@ from sklearn.metrics import average_precision_score
 import plot_style
 from plot_style import SERIES, TEXT_SECONDARY, plt, style_axis
 from data_loader import load_dataset
-from model import FPLPGCN_dw_linear
+import torch.nn as nn
 from train import get_device, get_train_args, set_seed, train_and_predict
 
 MODULES = ["feature", "label", "positional"]
@@ -125,9 +128,11 @@ def plot_homophily(df, path, config="MultiFix"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Per-label module ablation")
-    parser.add_argument("--datasets", nargs="+", default=["blogcatalog", "pcg", "humloc", "eukloc", "dblp"])
+    parser.add_argument("--datasets", nargs="+", default=["blogcatalog", "pcg", "dblp", "hyper_homo025", "hyper_homo045", "hyper_homo065", "hyper_homo085"])
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument("--configs", nargs="+", default=["MultiFix", "Full model"])
+    parser.add_argument("--model", default="relu", choices=["relu", "linear"],
+                        help="Base MultiFix model (relu = MLP-1)")
     parser.add_argument("--full_edge_weight", default="label_jaccard")
     parser.add_argument("--ablation", choices=["zero", "mean"], default="zero")
     parser.add_argument("--out_dir", default="results/analysis")
@@ -139,7 +144,8 @@ if __name__ == "__main__":
     for dataset in args.datasets:
         for config in args.configs:
             for seed in args.seeds:
-                train_args = get_train_args(["--data_name", dataset, "--seed", str(seed)] + flags[config] + passthrough)
+                train_args = get_train_args(["--data_name", dataset, "--seed", str(seed), "--model", args.model]
+                                            + flags[config] + passthrough)
                 set_seed(seed)
                 if train_args.num_threads is not None:
                     torch.set_num_threads(train_args.num_threads)
@@ -151,8 +157,9 @@ if __name__ == "__main__":
                 device = get_device(train_args.use_gpu)
                 G = G.to(device)
                 probs, _, model, _, best_epoch, _, _ = train_and_predict(train_args, G, device)
-                if not isinstance(model, FPLPGCN_dw_linear):
-                    raise SystemExit("The module ablation needs the linear MultiFix model (--model linear)")
+                if not (hasattr(model, "FP") and isinstance(model.fusion_layer, nn.Linear)):
+                    raise SystemExit("The module ablation needs a MultiFix model with one linear output layer "
+                                     "(--model relu or linear)")
                 ablated = ablate(model, args.ablation)
                 # the reconstruction from the stored module outputs must match the model's own output
                 assert np.allclose(ablated["full"], probs, atol=1e-5), "module outputs do not match the predictions"

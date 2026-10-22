@@ -128,7 +128,8 @@ class FPLPGCN_dw(nn.Module):
             if j != len(self.label_layers) - 1:
                 x_label = F.relu(x_label)
 
-
+        # module outputs, kept for the module ablation (as in FPLPGCN_dw_linear)
+        self.FP, self.LP, self.dw_emb = x, x_label, deep_walk_emb
         x_fused = torch.cat((x, x_label, deep_walk_emb), dim=1)
         self.all_emb = x_fused
         x_fused = self.fusion_layer(x_fused)

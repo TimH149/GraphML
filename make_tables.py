@@ -26,7 +26,8 @@ import torch
 from data_loader import load_dataset
 from evaluation import crossfit_val_f1
 
-DATASETS = ["blogcatalog", "pcg", "humloc", "eukloc", "dblp"]
+# the course datasets, in table order; HumLoc/EukLoc only with --datasets (e.g. for an appendix)
+DATASETS = ["blogcatalog", "pcg", "dblp", "hyper_homo025", "hyper_homo045", "hyper_homo065", "hyper_homo085"]
 RULE_SHORT = {"threshold_0.5": "0.5", "per_label_threshold": "per-label", "topk_pred": "top-k"}
 
 
@@ -54,21 +55,23 @@ def short_name(key):
 
 
 MODULES = ["feature", "label", "positional"]
-WEIGHTING_ROWS = [("Linear MultiFix (concatenation)", "linear__concat__bce"),
-                  ("Linear MultiFix, learned module weights", "linear__weighted__bce"),
-                  ("Linear MultiFix, learned module weights × 3", "linear__weighted-x3__bce"),
-                  ("Linear MultiFix, learned module weights, normalised modules", "linear__weighted-norm__bce"),
-                  ("MLP-1 (concatenation)", "relu__concat__bce"),
-                  ("MLP-1, learned module weights", "relu__weighted__bce"),
-                  ("MLP-1, learned module weights × 3", "relu__weighted-x3__bce"),
-                  ("MLP-1, learned module weights, normalised modules", "relu__weighted-norm__bce")]
+MODEL_NAMES = {"relu": "MLP-1", "linear": "linear MultiFix", "mlp": "MLP-3"}
+base = "relu"  # the base MultiFix model of our variants; set from --model
+
+
+def weighting_rows():
+    name = MODEL_NAMES[base]
+    return [(f"{name} (concatenation)", f"{base}__concat__bce"),
+            (f"{name}, learned module weights", f"{base}__weighted__bce"),
+            (f"{name}, learned module weights × 3", f"{base}__weighted-x3__bce"),
+            (f"{name}, learned module weights, normalised modules", f"{base}__weighted-norm__bce")]
 
 
 def module_weight_table(all_runs, results_dir, datasets):
     """Mean learned module weights on the test nodes (averaged over seeds) and their spread across nodes."""
     lines = ["**Learned module weights on the test nodes (feature / label / positional; mean over seeds)**", "",
              "| Model | " + " | ".join(datasets) + " |", "|---|" + "---|" * len(datasets)]
-    for name, key in [(n, k) for n, k in WEIGHTING_ROWS if "__weighted" in k]:
+    for name, key in [(n, k) for n, k in weighting_rows() if "__weighted" in k]:
         cells = []
         for d in datasets:
             runs = all_runs[(all_runs["dataset"] == d) & (all_runs["key"] == key)]
@@ -181,16 +184,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Markdown tables from the grid's results")
     parser.add_argument("--results_dir", default="results")
     parser.add_argument("--full_edge_weight", default="label_jaccard")
+    parser.add_argument("--datasets", nargs="+", default=DATASETS, help="Datasets (columns) in table order")
+    parser.add_argument("--model", default="relu", choices=list(MODEL_NAMES),
+                        help="Base MultiFix model of our variants (relu = MLP-1)")
+    parser.add_argument("--output", default=None, help="Output file (default: <results_dir>/tables.md)")
     args = parser.parse_args()
+    base = args.model
 
     summary = pd.read_csv(os.path.join(args.results_dir, "summary.csv"))
     summary["key"] = [config_key(c, d) for c, d in zip(summary["config"], summary["dataset"])]
     all_runs = pd.read_csv(os.path.join(args.results_dir, "all_runs.csv"))
     all_runs["key"] = [config_key(c, d) for c, d in zip(all_runs["config"], all_runs["dataset"])]
-    datasets = [d for d in DATASETS if d in set(summary["dataset"])]
+    datasets = [d for d in args.datasets if d in set(summary["dataset"])]
+    summary = summary[summary["dataset"].isin(datasets)]
+    all_runs = all_runs[all_runs["dataset"].isin(datasets)]
 
     # the variant of ours with the best validation AP per dataset
-    candidates = summary[summary["key"].str.startswith("linear__concat__") & (summary["key"] != "linear__concat__bce")
+    candidates = summary[summary["key"].str.startswith(f"{base}__concat__") & (summary["key"] != f"{base}__concat__bce")
                          & ~summary["key"].str.contains("ew-uniform")]
     selected = {d: g.loc[g["val_ap_macro_mean"].idxmax(), "key"] for d, g in candidates.groupby("dataset")}
     print("Selected on validation AP: " + ", ".join(f"{d}: {short_name(k)}" for d, k in selected.items()))
@@ -198,26 +208,26 @@ if __name__ == "__main__":
     results = Results(summary, chosen_rules(all_runs, args.results_dir), selected)
 
     ew = args.full_edge_weight
-    full = f"linear__concat__asl__ew-{ew}__card-ce"
+    full = f"{base}__concat__asl__ew-{ew}__card-ce"
     main_rows = [("MLP (features only)", "features_mlp__concat__bce"), ("GCN", "gcn__concat__bce"),
                  ("MajorityVote", "majority_vote"), ("DeepWalk + LR", "deepwalk_lr"),
-                 ("GNN-MultiFix", "linear__concat__bce"), ("Ours, all three extensions", full),
+                 (f"GNN-MultiFix ({MODEL_NAMES[base]})", f"{base}__concat__bce"), ("Ours, all three extensions", full),
                  ("Ours, selected on validation", "SELECTED")]
     annotate_selected = lambda d, key: short_name(selected[d]) if key == "SELECTED" and d in selected else None
     ablation_rows = []
     for edge in [False, True]:
         for loss in [False, True]:
             for card in [False, True]:
-                key = "linear__concat__" + ("asl" if loss else "bce") + (f"__ew-{ew}" if edge else "") + \
+                key = f"{base}__concat__" + ("asl" if loss else "bce") + (f"__ew-{ew}" if edge else "") + \
                       ("__card-ce" if card else "")
                 ablation_rows.append((short_name(key), key))
-    edge_rows = [("none (GCN aggregation)", "linear__concat__bce"),
-                 ("uniform (control: mean aggregation)", "linear__concat__bce__ew-uniform")] + \
-                [(v, f"linear__concat__bce__ew-{v}") for v in ["feat_cos", "label_jaccard", "attention"]]
-    loss_rows = [("BCE", "linear__concat__bce"), ("BCE + pos_weight", "linear__concat__bce_weighted"),
-                 ("ASL", "linear__concat__asl")]
-    card_rows = [("CE head", "linear__concat__bce__card-ce"), ("CE head, detached", "linear__concat__bce__card-ce-detach"),
-                 ("Poisson head", "linear__concat__bce__card-poisson")]
+    edge_rows = [("none (GCN aggregation)", f"{base}__concat__bce"),
+                 ("uniform (control: mean aggregation)", f"{base}__concat__bce__ew-uniform")] + \
+                [(v, f"{base}__concat__bce__ew-{v}") for v in ["feat_cos", "label_jaccard", "attention"]]
+    loss_rows = [("BCE", f"{base}__concat__bce"), ("BCE + pos_weight", f"{base}__concat__bce_weighted"),
+                 ("ASL", f"{base}__concat__asl")]
+    card_rows = [("CE head", f"{base}__concat__bce__card-ce"), ("CE head, detached", f"{base}__concat__bce__card-ce-detach"),
+                 ("Poisson head", f"{base}__concat__bce__card-poisson")]
     rules = [("threshold 0.5", "threshold_0.5"), ("per-label threshold (tuned on val)", "per_label_threshold"),
              ("top-k, predicted k", "topk_pred"), ("top-k, true k (oracle)", "topk_oracle")]
 
@@ -236,7 +246,7 @@ if __name__ == "__main__":
     for metric, name in [("ap_macro", "Macro-AP"), ("macro_f1@chosen", "Macro-F1")]:
         out += table(results, ablation_rows, metric, datasets, name, first_column="Configuration")
     out += ["## Decision rules", "", "Top-k only changes F1; AP and AUROC are the same for every rule.", ""]
-    for config_name, key in [("Ours, all three extensions", full), ("MultiFix + cardinality head", "linear__concat__bce__card-ce")]:
+    for config_name, key in [("Ours, all three extensions", full), ("MultiFix + cardinality head", f"{base}__concat__bce__card-ce")]:
         for metric, name in [("micro_f1", "Micro-F1"), ("macro_f1", "Macro-F1")]:
             lines =[f"**{name}, {config_name}**", "", "| Decision rule | " + " | ".join(datasets) + " |",
                      "|---|" + "---|" * len(datasets)]
@@ -269,10 +279,10 @@ if __name__ == "__main__":
             "'× 3' multiplies the weights by 3 (`--gate_scale 3`), so equal weights give the modules the same "
             "scale as in plain MultiFix; the weights shown are always the softmax shares (summing to 1).", ""]
     for metric, name in [("ap_macro", "Macro-AP"), ("macro_f1@chosen", "Macro-F1")]:
-        out += table(results, WEIGHTING_ROWS, metric, datasets, name)
+        out += table(results, weighting_rows(), metric, datasets, name)
     out += module_weight_table(all_runs, args.results_dir, datasets)
 
-    path = os.path.join(args.results_dir, "tables.md")
+    path = args.output or os.path.join(args.results_dir, "tables.md")
     with open(path, "w") as f:
         f.write("\n".join(out))
     print("Saved " + path)

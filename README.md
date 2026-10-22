@@ -10,6 +10,11 @@ to it, each aimed at something that makes multi-label graphs hard:
 Each one is a separate command-line flag, so all combinations can be run and compared. Datasets, splits and the
 metric code come from MLGNC (https://github.com/Tianqi-py/MLGNC).
 
+Datasets: BlogCatalog, PCG, DBLP, and the synthetic Hypersphere graph at homophily 0.25, 0.45, 0.65 and 0.85
+(`hyper_homo025` ... `hyper_homo085`). The four synthetic graphs have the same nodes, features and labels and only
+differ in their edges, so they show how each method depends on homophily. HumLoc and EukLoc also work
+(`--datasets humloc eukloc`); we ran them earlier but they aren't part of the assignment.
+
 ## Setup
 
 We use the `graphML` conda env (Python 3.11, PyTorch 2.14, PyG 2.8). On a Mac, `torch-scatter` and
@@ -44,6 +49,13 @@ python generate_deepwalk_embeddings.py --edges data/EukaryoteGo/edge_list.csv \
 # 3. DBLP features (split zip)
 zip -s 0 data/dblp/split_features.zip --out /tmp/dblp_features.zip
 unzip /tmp/dblp_features.zip -d data/dblp/
+
+# 4. synthetic graphs: put homo025.txt ... homo085.txt (edge lists) in data/Hyperspheres_10_10_0/,
+#    then make one DeepWalk embedding per graph
+for h in 025 045 065 085; do
+  python generate_deepwalk_embeddings.py --edges data/Hyperspheres_10_10_0/homo$h.txt \
+      --output data/Hyperspheres_10_10_0/homo$h.emb --num-nodes 3000
+done
 ```
 
 `python run_grid.py --dry_run` shows which datasets are ready and which files are missing.
@@ -51,8 +63,11 @@ unzip /tmp/dblp_features.zip -d data/dblp/
 Some things to know about the data:
 - BlogCatalog has no real node features, just one-hot node ids. So feature cosine similarity is 0 for every
   pair and `feat_cos` can't be used there.
-- The DBLP archive in the MLGNC repo is broken (`bad CRC`; only 15,878 of 28,702 rows come out). We need an
-  intact `features.txt` from somewhere else.
+- The DBLP archive in the MLGNC repo is broken (`bad CRC`; only 15,878 of 28,702 rows come out). Ask the team
+  for an intact `data/dblp/features.txt` (the CorGCN runs used one).
+- The homophily edge files (`homo025.txt` etc.) aren't in the MLGNC download either; get them from the team. The
+  loader accepts comma- or space-separated files and makes the edges undirected. Each graph needs its own
+  embedding (`homo025.emb` etc.), since the positional module has to describe the right graph.
 - 4,431 of EukLoc's 7,766 nodes have no edges.
 - The `Exception ignored in: ...our_dot_float` messages from gensim when making the embeddings can be ignored.
   The embeddings come out fine (neighbours are much more similar than random pairs).
@@ -62,16 +77,16 @@ Some things to know about the data:
 One run:
 
 ```bash
-python train.py --data_name pcg --seed 0                                    # MultiFix
+python train.py --data_name pcg --seed 0                                    # MultiFix (MLP-1)
 python train.py --data_name pcg --seed 0 --edge_weight label_jaccard --loss asl --card_head ce
 python train.py --data_name pcg --seed 0 --model deepwalk_lr                # a baseline
 ```
 
 Each run writes one row of metrics to `results/runs/<run_id>.csv` and its predictions to
 `results/preds/<run_id>.pt`. The run id is built from the flags, e.g.
-`pcg__linear__concat__asl__ew-label_jaccard__card-ce__split_0__seed0`.
+`pcg__relu__concat__asl__ew-label_jaccard__card-ce__split_0__seed0` (`relu` = MLP-1).
 
-Everything at once (all configurations × datasets × 5 seeds):
+Everything at once (all configurations × datasets × 5 seeds; the assignment's datasets by default):
 
 ```bash
 python run_grid.py --dry_run                              # list runs, run nothing
@@ -96,13 +111,19 @@ python analyze_results.py           # stratified evaluation + edge-weight analys
 python module_ablation.py --num_threads 4   # trains models again, removes one module at test time
 ```
 
+`analyze_results.py` also draws `figures/homophily_sweep.png`: test AP of every method against the homophily of
+the synthetic graphs.
+
 Figures go to `figures/`, numbers to `results/analysis/`.
 
 ## What's implemented
 
-The base model is the linear MultiFix (`--model linear`, `FPLPGCN_dw_linear` in `model.py`): a feature module
-(GCN layers over node features), a label module (GCN layers over the known training labels) and a positional
-module (DeepWalk embedding), concatenated and fed into one linear layer.
+The base model is MultiFix in its MLP-1 form (`--model relu`, `FPLPGCN_dw` in `model.py`, the default): a
+feature module (GCN layers over node features, ReLU in between), a label module (GCN layers over the known
+training labels, ReLU in between) and a positional module (DeepWalk embedding), concatenated and fed into one
+linear layer. All extensions, the grid, the tables and the analyses use MLP-1 (`--model` in `run_grid.py`,
+`make_tables.py`, `analyze_results.py` and `module_ablation.py` switches the base model; `linear` is the version
+without ReLUs that we used at first).
 
 | Flag | Options | What it does |
 |---|---|---|
@@ -149,8 +170,10 @@ A few details:
 ## Status
 
 - Done: training/evaluation pipeline, the three extensions, baselines, grid, tables, analyses and figures.
-- Results so far are for BlogCatalog, PCG, HumLoc and EukLoc (`results/tables.md`, `figures/`).
-- To do: DBLP (needs intact features) and the synthetic Hypersphere graphs at different homophily levels.
+- Earlier results with the linear MultiFix on BlogCatalog, PCG, HumLoc and EukLoc are still in `results/`, but
+  the tables and figures now only show MLP-1 on the assignment's datasets.
+- To do: run DBLP and the four synthetic graphs once their data files are in place (`run_grid.py --dry_run`
+  lists what's still missing).
 
 ## Files
 
