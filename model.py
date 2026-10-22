@@ -2,6 +2,7 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv
 from metrics import *
 from torch.nn import functional as F
+from torch_sparse import SparseTensor
 
 class FPLPGCN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_gcn_layers=2, num_label_layers=10):
@@ -128,10 +129,8 @@ class FPLPGCN_dw(nn.Module):
             if j != len(self.label_layers) - 1:
                 x_label = F.relu(x_label)
 
-        # module outputs, kept for the module ablation (as in FPLPGCN_dw_linear)
-        self.FP, self.LP, self.dw_emb = x, x_label, deep_walk_emb
+
         x_fused = torch.cat((x, x_label, deep_walk_emb), dim=1)
-        self.all_emb = x_fused
         x_fused = self.fusion_layer(x_fused)
 
         if not self.multi_class:
@@ -184,7 +183,6 @@ class FPLPGCN_dw_MLP(nn.Module):
 
 
         x_fused = torch.cat((x, x_label, deep_walk_emb), dim=1)
-        self.all_emb = x_fused
         x_fused = self.fusion_layer(x_fused)
 
         if not self.multi_class:
@@ -287,6 +285,11 @@ class FPLPGCN_dw_linear(nn.Module):
             ####################################################################
         else:
             return x_fused
+
+
+
+
+
 
 
 class FPLPGCN_dw_weighted(nn.Module):
@@ -392,5 +395,3 @@ class FPLPGCN_dw_weighted(nn.Module):
             return self.smd(x_fused)
         else:
             return x_fused
-
-

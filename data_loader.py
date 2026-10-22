@@ -9,7 +9,6 @@ from torch_geometric.datasets import Yelp
 from utils import sparse_mx_to_torch_sparse_tensor, row_normalize, remove_and_reindex_isolated_nodes, check_isolated_nodes
 from gensim.models import Word2Vec, KeyedVectors
 import torch_geometric.transforms as T
-from torch_geometric.utils import to_undirected
 from torch_geometric.datasets import Planetoid
 import torch.nn.functional as F
 
@@ -122,8 +121,6 @@ def load_hyper_data(data_name="Hyperspheres_10_10_0", split_name="split_0.pt", t
         if edges.shape[1] < 2:
             raise ValueError(f"Expected two edge columns in {edge_path}")
         edge_index = torch.as_tensor(edges[:, :2], dtype=torch.long).t().contiguous()
-        # GCN needs both directions of every edge; a no-op if the file already lists both
-        edge_index = to_undirected(edge_index, num_nodes=features.shape[0])
         print("loading the edges for homophily level...")
         print(edge_index.shape)
 
@@ -198,11 +195,9 @@ def load_hyper_data(data_name="Hyperspheres_10_10_0", split_name="split_0.pt", t
     G.LabelCor = row_normalize(LabelCor)
 
     # load deep walk embeddings
-    # every homophily level is a different graph, so each has its own embedding (<homo_level>.emb)
-    embedding_name = (homo_level + ".emb") if homo_level is not None else "hypersphere.emb"
-    embedding_path = osp.join(path, data_name, embedding_name)
+    embedding_path = osp.join(path, data_name, "hypersphere.emb")
     if not os.path.isfile(embedding_path):
-        edges_input = osp.join(path, data_name, (homo_level + ".txt") if homo_level is not None else "edges.txt.zip")
+        edges_input = osp.join(path, data_name, "edges.txt.zip")
         raise FileNotFoundError(
             f"Missing DeepWalk embeddings at {embedding_path}. Generate them with: "
             f"python generate_deepwalk_embeddings.py --edges {edges_input} "
@@ -868,30 +863,3 @@ def load_citeseer_split_train():
 
 
 
-
-# hyper_homo025 etc.: the synthetic Hypersphere graph at one homophily level (edges in <homo_level>.txt)
-HOMOPHILY_DATASETS = ["hyper_homo025", "hyper_homo045", "hyper_homo065", "hyper_homo085"]
-MULTI_LABEL_DATASETS = ["pcg", "humloc", "eukloc", "yelp", "blogcatalog", "hyper", "dblp"] + HOMOPHILY_DATASETS
-
-
-def load_dataset(data_name, split_name="split_0.pt", train_percent=0.6, feature_noise_ratio=None, homo_level=None):
-    """Load one of the multi-label datasets by its short name."""
-    if data_name == "pcg":
-        return load_pcg(split_name=split_name, train_percent=train_percent)
-    elif data_name == "humloc":
-        return load_humloc()
-    elif data_name == "eukloc":
-        return load_eukloc()
-    elif data_name == "yelp":
-        return load_yelp(split_name=split_name, train_percent=train_percent)
-    elif data_name == "blogcatalog":
-        return load_blogcatalog(split_name=split_name, train_percent=train_percent)
-    elif data_name.startswith("hyper_"):
-        return load_hyper_data(split_name=split_name, train_percent=train_percent,
-                               homo_level=data_name[len("hyper_"):])
-    elif data_name == "hyper":
-        return load_hyper_data(split_name=split_name, train_percent=train_percent,
-                               feature_noise_ratio=feature_noise_ratio, homo_level=homo_level)
-    elif data_name == "dblp":
-        return load_DBLP(split_name=split_name, train_percent=train_percent)
-    raise ValueError(f"Unknown multi-label dataset '{data_name}', expected one of {MULTI_LABEL_DATASETS}")

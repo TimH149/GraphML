@@ -1,4 +1,4 @@
-from model import FPLPGCN_dw, FPLPGCN_dw_linear, FPLPGCN_dw_MLP, FPLPGCN_dw_weighted
+from model import FPLPGCN_dw, FPLPGCN_dw_linear, FPLPGCN_dw_MLP
 from data_loader import load_pcg, load_humloc, load_eukloc, load_yelp, load_blogcatalog, load_hyper_data, load_DBLP, load_cora, load_citeseer
 from earlystopping_save_multiple_checkpoints import EarlyStopping
 from args import get_args
@@ -66,14 +66,8 @@ if __name__ == "__main__":
         args.multi_class = False
 
 
-    # choose variation of the model: weighted, linear or non_linear
-    if "weighted" in args.model_name:
-        model = FPLPGCN_dw_weighted(input_dim, hidden_dim, output_dim, num_gcn_layers=args.num_fp, num_label_layers=args.num_lp,
-                                    dw_dim=G.deep_walk_emb.shape[1], gate_dim=args.gate_dim, gate_norm=args.gate_norm,
-                                    multi_class=args.multi_class)
-        print("Created the weighted model.")
-
-    elif "linear" in args.model_name:
+    # choose variation of the model: linear or non_linear
+    if "linear" in args.model_name:
         model = FPLPGCN_dw_linear(input_dim, hidden_dim, output_dim, num_gcn_layers=args.num_fp, num_label_layers=args.num_lp,
                                   dw_dim=G.deep_walk_emb.shape[1], multi_class=args.multi_class)
         print("Created the linear model.")
@@ -192,17 +186,8 @@ if __name__ == "__main__":
             f'test ROC-AUC macro: {roc_auc_test_macro:.4f}, '
             f'Test Average Precision Score: {ap_test:.4f}, '
             )
-    ################################# Module Weights #####################################
-    if "weighted" in args.model_name:
-        weights = model.module_weights
-        for mask_name, mask in [("Train", G.train_mask), ("Val", G.val_mask), ("Test", G.test_mask)]:
-            w = weights[mask].mean(dim=0)
-            print(f'{mask_name} mean module weights (feature, label, positional): '
-                  f'{w[0]:.4f}, {w[1]:.4f}, {w[2]:.4f}')
-        torch.save(weights, args.model_name + "___" + args.split_name + "_module_weights.pt")
-
     ################################# Multi-class Evaluation #####################################
-    if args.multi_class:
+    else:
         pred = output.argmax(dim=-1)
         accs = []
         for mask in [G.train_mask, G.val_mask, G.test_mask]:

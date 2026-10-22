@@ -1,7 +1,7 @@
 import argparse
 
 
-def build_parser():
+def get_args():
     parser = argparse.ArgumentParser(description="Your Script Description")
 
     # Add command-line arguments
@@ -20,10 +20,6 @@ def build_parser():
     parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay')
     parser.add_argument('--epochs', type=int, default=1000, help='Number of training epochs')
     parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden unit')
-    parser.add_argument('--gate_dim', type=int, default=16, help='Projection size used to score the modules in the weighted model')
-    parser.add_argument('--gate_scale', type=float, default=1.0,
-                        help='Multiply the softmax module weights by this (3 = same input scale as plain MultiFix)')
-    parser.add_argument('--gate_norm', action='store_true', help='Normalise the modules and fuse them as a weighted sum in the weighted model')
     parser.add_argument('--use_gpu', action='store_true', help='Use GPU for training if available')
     parser.add_argument('--patience', type=int, default=100, help='Patience for early stopping')
     parser.add_argument('--feature_noise_ratio', type=float, default=None,
@@ -31,8 +27,6 @@ def build_parser():
     parser.add_argument('--homo_level', type=str, default=None,
                         help='The homophily level of the synthetic dataset')
 
-    return parser
 
-
-def get_args():
-    return build_parser().parse_args()
+    args = parser.parse_args()
+    return args
