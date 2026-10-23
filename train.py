@@ -24,6 +24,7 @@ import random
 import numpy as np
 import torch
 import torch.nn.functional as F
+from gensim.models import KeyedVectors
 from torch_sparse import SparseTensor
 
 from data_loader import load_blogcatalog, load_DBLP, load_eukloc, load_humloc, load_hyper_data, load_pcg
@@ -75,7 +76,17 @@ def load_data(args):
     if args.data_name == 'dblp':
         return load_DBLP(split_name=args.split_name, train_percent=args.train_percent)
     if args.data_name == 'hyper':
-        return load_hyper_data(split_name=args.split_name, train_percent=args.train_percent, homo_level=args.homo_level)
+        G = load_hyper_data(split_name=args.split_name, train_percent=args.train_percent, homo_level=args.homo_level)
+        # load_hyper_data uses one hypersphere.emb for every homophily level, but each level is a different graph,
+        # so the positional module gets the DeepWalk embedding of this level's graph (<homo_level>.emb)
+        emb_path = os.path.join("data", "Hyperspheres_10_10_0", args.homo_level + ".emb")
+        if not os.path.isfile(emb_path):
+            raise FileNotFoundError(
+                f"Missing {emb_path}. Generate it with: python generate_deepwalk_embeddings.py "
+                f"--edges data/Hyperspheres_10_10_0/{args.homo_level}.txt --output {emb_path} --num-nodes {G.num_nodes}")
+        emb = KeyedVectors.load_word2vec_format(emb_path, binary=False)
+        G.deep_walk_emb = torch.from_numpy(np.asarray([emb[str(n)] for n in range(G.num_nodes)])).float()
+        return G
     if args.data_name == 'humloc':
         return load_humloc()
     return load_eukloc()
