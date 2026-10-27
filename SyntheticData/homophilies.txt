@@ -1,0 +1,5 @@
+target,  alpha,   b,       ratio,               edges 
+0.25,    0.311,   0.025,   homo-ratio:0.249,    161078.0 edges
+0.45,    1.694,   0.025,   homo-ratio:0.453,    25439.0 edges
+0.65,    2.513,   0.025,   homo-ratio:0.655,    11566.0 edges
+0.85,    3.589,   0.025,   homo-ratio:0.857,    6852.0 edges
