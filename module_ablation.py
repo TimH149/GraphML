@@ -31,45 +31,11 @@ import torch
 from scipy.stats import spearmanr
 from sklearn.metrics import average_precision_score
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  
+import plot_style
+from plot_style import MODULES, SERIES, TEXT_SECONDARY, plt, style_axis
 
 import torch.nn as nn
 from train import get_device, get_train_args, set_seed, train_and_predict, load_dataset
-
-MODULES = ["feature", "label", "positional"]
-
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-NEUTRAL = "#898781"          # reference marks such as "random pairs"
-TEXT = "#0b0b0b"
-TEXT_SECONDARY = "#52514e"
-GRID = "#e1e0d9"
-SURFACE = "#fcfcfb"
-
-plt.rcParams.update({
-    "font.size": 9, "axes.titlesize": 10, "axes.labelsize": 9, "legend.fontsize": 8,
-    "axes.edgecolor": NEUTRAL, "axes.labelcolor": TEXT_SECONDARY, "text.color": TEXT,
-    "xtick.color": TEXT_SECONDARY, "ytick.color": TEXT_SECONDARY,
-    "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
-    "lines.linewidth": 2, "lines.markersize": 5,
-})
-
-
-def style_axis(ax, grid_axis="y"):
-    ax.spines[["top", "right"]].set_visible(False)
-    if grid_axis:
-        ax.grid(axis=grid_axis, color=GRID, linewidth=0.8)
-    ax.set_axisbelow(True)
-
-
-def save_plt(fig, path):
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    fig.savefig(path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
-    print("Saved " + path)
-
 
 def config_flags(full_edge_weight):
     return {"MultiFix": [], "Full model": ["--edge_weight", full_edge_weight, "--loss", "asl", "--card_head", "ce"]}
@@ -129,7 +95,7 @@ def plot_drops(df, path):
     fig.legend(handles, labels, loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.08))
     fig.suptitle("Module ablation at test time (mean over labels; ± std over seeds)", x=0.01, ha="left", y=1.15)
     fig.tight_layout()
-    save_plt(fig, path)
+    plot_style.save(fig, path)
 
 
 def plot_homophily(df, path, config="MultiFix"):
@@ -143,7 +109,7 @@ def plot_homophily(df, path, config="MultiFix"):
         p = per_label[per_label["dataset"] == dataset]
         for i, m in enumerate(MODULES):
             rho = spearmanr(p["homophily"], p[f"drop_{m}"], nan_policy="omit").correlation
-            ax.scatter(p["homophily"], p[f"drop_{m}"], s=22, color=SERIES[i], edgecolor=SURFACE,
+            ax.scatter(p["homophily"], p[f"drop_{m}"], s=22, color=SERIES[i], edgecolor=plot_style.SURFACE,
                        linewidth=1, label=f"{m} (ρ = {rho:.2f})", zorder=3)
         ax.axhline(0, color=TEXT_SECONDARY, linewidth=0.8)
         ax.set_xlabel("Label homophily")
@@ -154,7 +120,7 @@ def plot_homophily(df, path, config="MultiFix"):
     fig.suptitle(f"{config}: which labels rely on which module? (one point per label, Spearman ρ)",
                  x=0.01, ha="left", y=1.04)
     fig.tight_layout()
-    save_plt(fig, path)
+    plot_style.save(fig, path)
 
 
 if __name__ == "__main__":
