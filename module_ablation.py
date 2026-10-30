@@ -134,7 +134,7 @@ if __name__ == "__main__":
     parser.add_argument("--configs", nargs="+", default=["MultiFix", "Full model"])
     parser.add_argument("--model", default="relu", choices=["relu", "linear"],
                         help="Base MultiFix model (relu = MLP-1)")
-    parser.add_argument('--splits', default=['split_0.pt'])
+    parser.add_argument('--splits', nargs="+", default=['split_0.pt'])
     parser.add_argument("--full_edge_weight", default="label_jaccard")
     parser.add_argument("--ablation", choices=["zero", "mean"], default="zero")
     parser.add_argument("--out_dir", default="results/analysis")
