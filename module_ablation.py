@@ -24,18 +24,22 @@ Example:
 """
 import argparse
 import os
+import random
+import copy
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
+from torch_sparse import SparseTensor
 from scipy.stats import spearmanr
 from sklearn.metrics import average_precision_score
 
 import plot_style
-from plot_style import MODULES, SERIES, TEXT_SECONDARY, plt, style_axis
+from plot_style import  SERIES, TEXT_SECONDARY, plt, style_axis
 
 import torch.nn as nn
-from train import get_device, get_train_args, set_seed, train_and_predict, load_dataset
+from train import MODULES, build_model, get_train_args, load_data
 
 def config_flags(full_edge_weight):
     return {"MultiFix": [], "Full model": ["--edge_weight", full_edge_weight, "--loss", "asl", "--card_head", "ce"]}
@@ -130,6 +134,7 @@ if __name__ == "__main__":
     parser.add_argument("--configs", nargs="+", default=["MultiFix", "Full model"])
     parser.add_argument("--model", default="relu", choices=["relu", "linear"],
                         help="Base MultiFix model (relu = MLP-1)")
+    parser.add_argument('--splits', default=['split_0.pt'])
     parser.add_argument("--full_edge_weight", default="label_jaccard")
     parser.add_argument("--ablation", choices=["zero", "mean"], default="zero")
     parser.add_argument("--out_dir", default="results/analysis")
@@ -141,44 +146,92 @@ if __name__ == "__main__":
     for dataset in args.datasets:
         for config in args.configs:
             for seed in args.seeds:
-                train_args = get_train_args(["--data_name", dataset, "--seed", str(seed), "--model", args.model]
-                                            + flags[config] + passthrough)
-                set_seed(seed)
-                if train_args.num_threads is not None:
-                    torch.set_num_threads(train_args.num_threads)
-                try:
-                    G = load_dataset(dataset)
-                except (OSError, FileNotFoundError) as e:
-                    print(f"Skipping {dataset}: {e}")
-                    break
-                device = get_device(train_args.use_gpu)
-                G = G.to(device)
-                probs, _, model, _, best_epoch, _, _ = train_and_predict(train_args, G, device)
-                if not (hasattr(model, "FP") and isinstance(model.fusion_layer, nn.Linear)):
-                    raise SystemExit("The module ablation needs a MultiFix model with one linear output layer "
-                                     "(--model relu or linear)")
-                ablated = ablate(model, args.ablation)
-                # the reconstruction from the stored module outputs must match the model's own output
-                assert np.allclose(ablated["full"], probs, atol=1e-5), "module outputs do not match the predictions"
+                for split in args.splits:
+                    train_args = get_train_args(["--data_name", dataset, "--seed", str(seed), "--model", args.model, "--split_name", split]
+                                                + flags[config] + passthrough)
+                    
+                    random.seed(seed)
+                    np.random.seed(seed)
+                    torch.manual_seed(seed)
+                    torch.cuda.manual_seed_all(seed)
+                    if torch.backends.mps.is_available():
+                        torch.mps.manual_seed(seed)
+                    torch.use_deterministic_algorithms(True, warn_only=True)
 
-                G = G.cpu()
-                test = G.test_mask.numpy()
-                y_test = G.y.numpy()[test].astype(int)
-                homophily = label_homophily(G)
-                train_freq = G.y[G.train_mask].sum(dim=0).numpy()
-                ap = {k: per_label_ap(y_test, v[test]) for k, v in ablated.items()}
-                for c in range(y_test.shape[1]):
-                    if np.isnan(ap["full"][c]):
-                        continue
-                    row = {"dataset": dataset, "config": config, "seed": seed, "label": c,
-                           "train_freq": int(train_freq[c]), "homophily": homophily[c], "ap_full": ap["full"][c]}
-                    for m in MODULES:
-                        row[f"ap_without_{m}"] = ap[m][c]
-                        row[f"drop_{m}"] = ap["full"][c] - ap[m][c]
-                    rows.append(row)
-                changes = {m: np.nanmean(ap[m] - ap["full"]) for m in MODULES}
-                print(f"{dataset} | {config} | seed {seed} (best epoch {best_epoch}): mean AP {np.nanmean(ap['full']):.4f}; "
-                      "change without " + ", ".join(f"{m} {d:+.4f}" for m, d in changes.items()), flush=True)
+                    if train_args.num_threads is not None:
+                        torch.set_num_threads(train_args.num_threads)
+                    try:
+                        G = load_data(train_args)
+                    except (OSError, FileNotFoundError) as e:
+                        print(f"Skipping {dataset}: {e}")
+                        break
+
+                    model = build_model(args, G)
+                
+                    # a sparse adjacency matrix (and sparse features if they are mostly zeros, e.g. BlogCatalog's one-hot
+                    # features) makes message passing faster on the CPU; the results are the same up to float rounding
+                    graph, x = G.edge_index, G.x
+                    if not train_args.no_sparse:
+                        graph = SparseTensor.from_edge_index(G.edge_index, sparse_sizes=(G.num_nodes, G.num_nodes)).t()
+                        if (G.x != 0).float().mean().item() < 0.05:
+                            x = G.x.to_sparse()
+                
+                    def forward():
+                        return model(x, G.y_pad, graph, G.deep_walk_emb)
+                
+                    optimizer = torch.optim.Adam(model.parameters(), lr=train_args.learning_rate, weight_decay=train_args.weight_decay)
+                    best_val_loss, best_epoch, best_state, bad_epochs = float("inf"), -1, None, 0
+                    for epoch in range(train_args.epochs):
+                        model.train()
+                        optimizer.zero_grad()
+                        loss = F.binary_cross_entropy_with_logits(forward()[G.train_mask], G.y[G.train_mask])
+                        loss.backward()
+                        optimizer.step()
+                
+                        model.eval()
+                        with torch.no_grad():
+                            val_loss = F.binary_cross_entropy_with_logits(forward()[G.val_mask], G.y[G.val_mask]).item()
+                        if val_loss < best_val_loss:
+                            best_val_loss, best_epoch, best_state, bad_epochs = val_loss, epoch, copy.deepcopy(model.state_dict()), 0
+                        else:
+                            bad_epochs += 1
+                        if epoch % train_args.log_every == 0:
+                            print(f"Epoch {epoch}: train loss {loss.item():.4f}, val loss {val_loss:.4f}, "
+                                f"best {best_val_loss:.4f} (epoch {best_epoch})")
+                        if bad_epochs >= train_args.patience:
+                            print(f"Early stopping at epoch {epoch}")
+                            break
+                
+                    # evaluate the epoch with the lowest validation loss
+                    model.load_state_dict(best_state)
+                    model.eval()
+                    with torch.no_grad():
+                        probs = torch.sigmoid(forward()).numpy()
+                    if not (hasattr(model, "FP") and isinstance(model.fusion_layer, nn.Linear)):
+                        raise SystemExit("The module ablation needs a MultiFix model with one linear output layer "
+                                        "(--model relu or linear)")
+                    ablated = ablate(model, args.ablation)
+                    # the reconstruction from the stored module outputs must match the model's own output
+                    assert np.allclose(ablated["full"], probs, atol=1e-5), "module outputs do not match the predictions"
+
+                    G = G.cpu()
+                    test = G.test_mask.numpy()
+                    y_test = G.y.numpy()[test].astype(int)
+                    homophily = label_homophily(G)
+                    train_freq = G.y[G.train_mask].sum(dim=0).numpy()
+                    ap = {k: per_label_ap(y_test, v[test]) for k, v in ablated.items()}
+                    for c in range(y_test.shape[1]):
+                        if np.isnan(ap["full"][c]):
+                            continue
+                        row = {"dataset": dataset, "config": config, "seed": seed, "label": c,
+                            "train_freq": int(train_freq[c]), "homophily": homophily[c], "ap_full": ap["full"][c]}
+                        for m in MODULES:
+                            row[f"ap_without_{m}"] = ap[m][c]
+                            row[f"drop_{m}"] = ap["full"][c] - ap[m][c]
+                        rows.append(row)
+                    changes = {m: np.nanmean(ap[m] - ap["full"]) for m in MODULES}
+                    print(f"{dataset} | {config} | seed {seed} | {split} (best epoch {best_epoch}): mean AP {np.nanmean(ap['full']):.4f}; "
+                        "change without " + ", ".join(f"{m} {d:+.4f}" for m, d in changes.items()), flush=True)
 
     if not rows:
         raise SystemExit("No results")

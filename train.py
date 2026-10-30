@@ -34,7 +34,7 @@ from model import FPLPGCN_dw, FPLPGCN_dw_linear, FPLPGCN_dw_MLP, FPLPGCN_dw_weig
 MODULES = ["feature", "label", "positional"]
 
 
-def get_args(argv=None):
+def get_train_args(argv=None):
     parser = argparse.ArgumentParser(description="MultiFix with learned module weighting")
     parser.add_argument('--data_name', type=str, default='pcg',
                         choices=['pcg', 'blogcatalog', 'dblp', 'hyper', 'humloc', 'eukloc'])
@@ -112,7 +112,7 @@ def build_model(args, G):
 
 
 if __name__ == "__main__":
-    args = get_args()
+    args = get_train_args()
     rid = run_id(args)
     print("Run " + rid)
 
