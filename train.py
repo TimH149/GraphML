@@ -20,6 +20,8 @@ import copy
 import csv
 import os
 import random
+import resource
+import time
 
 import numpy as np
 import torch
@@ -49,6 +51,15 @@ def get_args(argv=None):
     parser.add_argument('--gate_dim', type=int, default=16, help='Projection size used to score the modules')
     parser.add_argument('--gate_scale', type=float, default=1.0, help='Multiply the module weights by this')
     parser.add_argument('--gate_norm', action='store_true', help='Normalise the modules and sum them')
+    parser.add_argument('--gate_mode', type=str, default='learned', choices=['learned', 'uniform', 'global'],
+                        help='learned = per-node weights, uniform = fixed 1/3, global = one learned weight vector')
+    parser.add_argument('--modules', type=str, default='FLP',
+                        help='Modules to use (subset of F, L, P), e.g. F for a feature-only model')
+    parser.add_argument('--clean_val', action='store_true',
+                        help='Remove validation nodes that are also training or test nodes (needed for DBLP)')
+    parser.add_argument('--label_trick', type=float, default=0.0,
+                        help='Label trick: each epoch hide the labels of this fraction of training nodes in the '
+                             'label input and compute the loss only on them (0 = off, e.g. 0.5)')
     parser.add_argument('--num_fp', type=int, default=2, help='Number of feature propagation layers')
     parser.add_argument('--num_lp', type=int, default=5, help='Number of label propagation layers')
     parser.add_argument('--hidden_dim', type=int, default=256)
@@ -65,7 +76,21 @@ def get_args(argv=None):
         parser.error("--fusion weighted works with --model relu or linear")
     if args.data_name == 'hyper' and args.homo_level is None:
         parser.error("--data_name hyper needs --homo_level, e.g. homo025")
+    if not args.modules or set(args.modules) - set('FLP'):
+        parser.error("--modules must be a non-empty subset of FLP")
+    if args.fusion != 'weighted' and (args.gate_mode != 'learned' or args.modules != 'FLP'):
+        parser.error("--gate_mode and --modules need --fusion weighted")
     return args
+
+
+def clean_validation(G):
+    """Drop validation nodes that are also training or test nodes, and give the training nodes back their
+    labels in the label input (the loader padded them because they were in the validation set)."""
+    overlap = G.val_mask & (G.train_mask | G.test_mask)
+    print(f"clean_val: removing {overlap.sum().item()} overlapping nodes from the validation set")
+    G.val_mask = G.val_mask & ~overlap
+    G.y_pad[G.train_mask & ~G.test_mask] = G.y[G.train_mask & ~G.test_mask]
+    return G
 
 
 def load_data(args):
@@ -97,6 +122,12 @@ def run_id(args):
     fusion = args.fusion
     if args.fusion == 'weighted':
         fusion += ("-norm" if args.gate_norm else "") + (f"-x{args.gate_scale:g}" if args.gate_scale != 1 else "")
+        fusion += (f"-{args.gate_mode}" if args.gate_mode != 'learned' else "")
+        fusion += (f"-only{args.modules}" if args.modules != 'FLP' else "")
+    if args.clean_val:
+        dataset += "-cleanval"
+    if args.label_trick > 0:
+        fusion += f"-lt{args.label_trick:g}"
     return "__".join([dataset, args.model, fusion, os.path.splitext(args.split_name)[0], f"seed{args.seed}"])
 
 
@@ -107,7 +138,8 @@ def build_model(args, G):
                   dw_dim=G.deep_walk_emb.shape[1], multi_class=True)
     if args.fusion == 'weighted':
         return FPLPGCN_dw_weighted(gate_dim=args.gate_dim, gate_norm=args.gate_norm, nonlinear=args.model == 'relu',
-                                   weight_scale=args.gate_scale, **kwargs)
+                                   weight_scale=args.gate_scale, gate_mode=args.gate_mode,
+                                   module_mask=tuple(int(m in args.modules) for m in 'FLP'), **kwargs)
     return {'relu': FPLPGCN_dw, 'linear': FPLPGCN_dw_linear, 'mlp': FPLPGCN_dw_MLP}[args.model](**kwargs)
 
 
@@ -124,6 +156,8 @@ if __name__ == "__main__":
         torch.set_num_threads(args.num_threads)
 
     G = load_data(args)
+    if args.clean_val:
+        G = clean_validation(G)
     model = build_model(args, G)
 
     # a sparse adjacency matrix (and sparse features if they are mostly zeros, e.g. BlogCatalog's one-hot
@@ -134,21 +168,38 @@ if __name__ == "__main__":
         if (G.x != 0).float().mean().item() < 0.05:
             x = G.x.to_sparse()
 
-    def forward():
-        return model(x, G.y_pad, graph, G.deep_walk_emb)
+    def forward(y_in=None):
+        return model(x, G.y_pad if y_in is None else y_in, graph, G.deep_walk_emb)
+
+    # label trick: training nodes whose own label is visible in the label input (not padded)
+    visible = G.train_mask & (G.y_pad == G.y).all(dim=1)
+    padding = torch.full((G.y.shape[1],), 1 / G.y.shape[1])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     best_val_loss, best_epoch, best_state, bad_epochs = float("inf"), -1, None, 0
+    curve = []  # (epoch, train loss, val loss) for plotting training curves
+    epoch_times = []
     for epoch in range(args.epochs):
+        t0 = time.perf_counter()
         model.train()
         optimizer.zero_grad()
-        loss = F.binary_cross_entropy_with_logits(forward()[G.train_mask], G.y[G.train_mask])
+        if args.label_trick > 0:
+            # hide the labels of a random subset of training nodes and train only on those nodes, so that
+            # training matches test time, where a node never sees its own label
+            hidden = visible & (torch.rand(G.num_nodes) < args.label_trick)
+            y_in = G.y_pad.clone()
+            y_in[hidden] = padding
+            loss = F.binary_cross_entropy_with_logits(forward(y_in)[hidden], G.y[hidden])
+        else:
+            loss = F.binary_cross_entropy_with_logits(forward()[G.train_mask], G.y[G.train_mask])
         loss.backward()
         optimizer.step()
 
         model.eval()
         with torch.no_grad():
             val_loss = F.binary_cross_entropy_with_logits(forward()[G.val_mask], G.y[G.val_mask]).item()
+        epoch_times.append(time.perf_counter() - t0)
+        curve.append((epoch, loss.item(), val_loss))
         if val_loss < best_val_loss:
             best_val_loss, best_epoch, best_state, bad_epochs = val_loss, epoch, copy.deepcopy(model.state_dict()), 0
         else:
@@ -179,7 +230,13 @@ if __name__ == "__main__":
 
     row = {"run_id": rid, "dataset": args.data_name, "homo_level": args.homo_level, "model": args.model,
            "fusion": args.fusion, "gate_scale": args.gate_scale, "gate_norm": args.gate_norm, "seed": args.seed,
-           "best_epoch": best_epoch}
+           "gate_mode": args.gate_mode, "modules": args.modules, "clean_val": args.clean_val,
+           "label_trick": args.label_trick,
+           "best_epoch": best_epoch, "num_params": sum(p.numel() for p in model.parameters()),
+           "sec_per_epoch": float(np.mean(epoch_times)),
+           # peak resident memory of the process (bytes on macOS, KiB on Linux)
+           "peak_rss": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+    print(f"{row['num_params']} parameters, {row['sec_per_epoch']:.4f} s/epoch, peak RSS {row['peak_rss']}")
     for split, r in results.items():
         row.update({f"{split}_{k}": v for k, v in r.items()})
     preds = {"probs": torch.from_numpy(probs), "train_mask": G.train_mask, "val_mask": G.val_mask,
@@ -197,11 +254,31 @@ if __name__ == "__main__":
         mean = weights[G.test_mask].mean(dim=0)
         row.update({f"test_weight_{m}": mean[i].item() for i, m in enumerate(MODULES)})
 
-    for sub in ["runs", "preds"]:
+        # fidelity: remove one module at test time (its weight set to 0, the others renormalised)
+        # and measure the drop in the threshold-free metrics
+        if args.modules == 'FLP':
+            full_mask = model.module_mask.clone()
+            for i, m in enumerate(MODULES):
+                model.module_mask.copy_(full_mask)
+                model.module_mask[i] = 0
+                with torch.no_grad():
+                    p = torch.sigmoid(forward()).numpy()
+                r = evaluate(y[test], p[test], thresholds=thresholds)
+                row[f"test_ap_without_{m}"] = r["ap_macro"]
+                row[f"test_auroc_without_{m}"] = r["auroc_macro"]
+                print(f"fidelity: without {m} module test AP {r['ap_macro']:.4f} "
+                      f"(drop {results['test']['ap_macro'] - r['ap_macro']:+.4f})")
+            model.module_mask.copy_(full_mask)
+
+    for sub in ["runs", "preds", "curves"]:
         os.makedirs(os.path.join(args.results_dir, sub), exist_ok=True)
     with open(os.path.join(args.results_dir, "runs", rid + ".csv"), "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(row))
         writer.writeheader()
         writer.writerow(row)
+    with open(os.path.join(args.results_dir, "curves", rid + ".csv"), "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["epoch", "train_loss", "val_loss"])
+        writer.writerows(curve)
     torch.save(preds, os.path.join(args.results_dir, "preds", rid + ".pt"))
     print("Saved " + os.path.join(args.results_dir, "runs", rid + ".csv"))

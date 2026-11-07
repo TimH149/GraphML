@@ -312,10 +312,21 @@ class FPLPGCN_dw_weighted(nn.Module):
     MultiFix. module_weights always stores the softmax weights themselves (they sum to 1).
     """
     def __init__(self, input_dim, hidden_dim, output_dim, num_gcn_layers=2, num_label_layers=10, dw_dim=64,
-                 gate_dim=16, gate_norm=False, nonlinear=False, weight_scale=1.0, multi_class=False):
+                 gate_dim=16, gate_norm=False, nonlinear=False, weight_scale=1.0, multi_class=False,
+                 gate_mode="learned", module_mask=(1, 1, 1)):
+        """gate_mode: "learned" = per-node weights from the scorer (default), "uniform" = fixed 1/3 for every
+        module, "global" = one learned weight vector shared by all nodes.
+        module_mask: which of (feature, label, positional) are used; the weights of the used modules are
+        renormalised to sum to 1. Training with e.g. (1, 0, 0) gives a single-module model, and changing
+        the mask after training removes a module at test time (fidelity test)."""
         super(FPLPGCN_dw_weighted, self).__init__()
         self.nonlinear = nonlinear
         self.weight_scale = weight_scale
+        assert gate_mode in ("learned", "uniform", "global")
+        self.gate_mode = gate_mode
+        self.register_buffer("module_mask", torch.tensor(module_mask, dtype=torch.float))
+        if gate_mode == "global":
+            self.global_logits = nn.Parameter(torch.zeros(3))
 
         # GCN layers for feature aggregation
         self.gcn_layers = nn.ModuleList()
@@ -373,9 +384,16 @@ class FPLPGCN_dw_weighted(nn.Module):
                 x_label = F.relu(x_label)
 
         # one score per module, softmax over the three modules for every node
-        scores = torch.cat((self.score(self.proj_fp(x)),
-                            self.score(self.proj_lp(x_label)),
-                            self.score(self.proj_dw(deep_walk_emb))), dim=1)
+        if self.gate_mode == "learned":
+            scores = torch.cat((self.score(self.proj_fp(x)),
+                                self.score(self.proj_lp(x_label)),
+                                self.score(self.proj_dw(deep_walk_emb))), dim=1)
+        elif self.gate_mode == "global":
+            scores = self.global_logits.expand(x.shape[0], 3)
+        else:  # uniform
+            scores = torch.zeros(x.shape[0], 3, device=x.device)
+        # drop the masked modules and renormalise the weights of the others
+        scores = scores.masked_fill(self.module_mask == 0, float("-inf"))
         weights = F.softmax(scores, dim=1)
         self.module_weights = weights.detach()
         weights = self.weight_scale * weights
