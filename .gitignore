@@ -1,4 +1,4 @@
 data\blogcatalog\blogcatalog.mat
 data/
 __pycache__/
-Result/
+Result/Embeddings/dblp/features.txt
